@@ -1,0 +1,18 @@
+<!--
+Developer Notes:
+This file is read in as a template and will not work properly until parsed.
+
+Variables:
+ - {{.StravaClientID}}
+--><html>
+<head>
+<title>run4charity</title>
+</head>
+
+<body>
+    <div id="main_container">
+    <a href="https://www.strava.com/oauth/authorize?client_id={{.StravaClientID}}&response_type=code&redirect_uri=http://localhost:9000/token_exchange&scope=write&state=mystate&approval_prompt=force">
+        <img src="https://strava.github.io/api/images/LogInWithStrava.png">
+    </a>
+    </div>
+</body>
