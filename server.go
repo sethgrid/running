@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"html/template"
@@ -40,10 +41,10 @@ var STRAVA_CLIENT_SECRET string
 var STRAVA_CLIENT_ID string
 var STRAVA_ACCESS_TOKEN string
 
-var COOKIE_EXPIRY time.Duration
-var EARLIEST_POLL_UNIX int64
-var POLL_INTERVAL time.Duration
-var HMAC_KEY string
+var COOKIE_EXPIRY time.Duration // how long the cookie will be valid
+var EARLIEST_POLL_UNIX int64    // the earliest unix timestamp for which we will try to get running info
+var POLL_INTERVAL time.Duration // how often to update / sync our records
+var HMAC_KEY string             // for signing the cookie to detect tampering
 
 // in-app set up
 const (
@@ -51,6 +52,7 @@ const (
 	MysqlDateFormat = "2006-01-02 15:04:05"
 )
 
+// DB is concurrent access safe
 var DB *sql.DB
 
 // StravaOAuthTokenResponse is the data we get back after validating a user.
@@ -60,7 +62,7 @@ type StravaOAuthTokenResponse struct {
 	StravaAthlete Athlete `json:"athlete"`
 }
 
-// Athlete represents athlete data from strava
+// Athlete represents athlete data from strava. We won't use most of this.
 type Athlete struct {
 	ID                    int     `json:"id"`
 	ResourceState         int     `json:"resource_state"`
@@ -98,6 +100,9 @@ type Activity struct {
 }
 
 func main() {
+	// ****************************
+	// pull in configs and validate
+
 	var port int
 	flag.IntVar(&port, "port", 9000, "port upon which to run")
 	flag.StringVar(&MYSQL_DB, "mysql-db", "db_name", "the mysql database name")
@@ -116,6 +121,9 @@ func main() {
 	flagenv.Parse()
 	warningMissingConfigs()
 
+	// ********************
+	// set up db connection
+
 	dsn := &DataSourceName{}
 	dsn.User = MYSQL_USER
 	dsn.Password = MYSQL_PW
@@ -133,6 +141,9 @@ func main() {
 	}
 	defer DB.Close()
 
+	// ****************************************************
+	// make sure we stay in sync with user data from strava
+
 	go func() {
 		// do
 		activityUpdator(-1)
@@ -146,16 +157,23 @@ func main() {
 		}
 	}()
 
+	// ********************
+	// set up server routes
+
 	log.Printf("starting on :%d", port)
 
 	r := mux.NewRouter()
 
+	// unauthenticated endpoints
 	r.Handle("/", mwLogRequest(http.HandlerFunc(homeHandler)))
 	r.Handle("/token_exchange", mwLogRequest(http.HandlerFunc(tokenHandler)))
-	r.Handle("/app", mwLogRequest(http.HandlerFunc(appHandler)))
+
+	// authenticated endpoints
+	r.Handle("/app", mwLogRequest(mwAuthenticated(http.HandlerFunc(appHandler))))
+	r.Handle("/user/{id:[0-9]+}/summary", mwLogRequest(mwAuthenticated(http.HandlerFunc(userSummaryHandler))))
 
 	if err := http.ListenAndServe(fmt.Sprintf(":%d", port), r); err != nil {
-		log.Println("unexpected error - %v", err)
+		log.Println("unexpected error serving application - %v", err)
 	}
 }
 
@@ -212,6 +230,7 @@ func activityUpdator(limitToUserID int) {
 	log.Println("activityUpdator complete")
 }
 
+// listAthleteActivities grabs activities from Strava
 func listAthleteActivities(oAuthToken string, startUnix int64) []Activity {
 	var activities []Activity
 
@@ -253,6 +272,7 @@ func listAthleteActivities(oAuthToken string, startUnix int64) []Activity {
 	return activities
 }
 
+// checkAndSetUser will insert a user if they do not exist, update them if their email or oAuthToken has changed, or do nothing.
 func checkAndSetUser(stravaID int, email string, oAuthToken string) {
 	var ID int
 	var previousEmail string
@@ -285,6 +305,34 @@ func checkAndSetUser(stravaID int, email string, oAuthToken string) {
 	}
 
 	activityUpdator(ID)
+}
+
+// userSummaryHandler grabs locally stored data for the user and should be behind mwAuthenticated middleware
+func userSummaryHandler(w http.ResponseWriter, r *http.Request) {
+	// figure out authentication middleware
+	//    id, ok := mux.Vars(r)["id"]
+	// if !ok {
+	// 	errHandler(w, r, http.StatusBadRequest, "missing user id")
+	// 	return
+	// }
+	// parts := strings.Split(r.Header.Get("Authorization"), " ")
+	// if len(parts) != 2 {
+	// 	errHandler(w, r, http.StatusBadRequest, "unable to get authorization header bearer token")
+	// 	return
+	// }
+	//    token := parts[1]
+	//    existingCookie := r.Cookie(AuthCookieName).Value
+
+	//    /// maybe not needed if we have auth middleware?
+	//    if !validCookie(existingCookie){
+	//        authErrHandler(w, r, msg)
+	//    }
+
+	//    cookieData := extractCookieData(existingCookie)
+
+	//    // now we have cookieData.?.stravaID
+	//    obj := getSummary(stravaID)
+	//    return json.marshal(obj)
 }
 
 // homeHandler presents the index.html template
@@ -337,47 +385,9 @@ func tokenHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// ***************
-	// oauth handshake
-
-	requestData := struct {
-		ClientID     string `json:"client_id"`
-		ClientSecret string `json:"client_secret"`
-		Code         string `json:"code"`
-	}{
-		STRAVA_CLIENT_ID, STRAVA_CLIENT_SECRET, code,
-	}
-	b, err := json.Marshal(requestData)
+	OAuthData, rawBody, err := StravaOAuthTokenEndpoint(code)
 	if err != nil {
-		log.Printf("error marshalling requestData - %v", err)
-		errHandler(w, r, http.StatusInternalServerError, "unable to prepare data for oauth token request")
-		return
-	}
-
-	resp, err := http.Post("https://www.strava.com/oauth/token", "application/json", bytes.NewReader(b))
-	if err != nil {
-		log.Println("error posting to strava oauth token endpoint - %v", err)
-		errHandler(w, r, http.StatusInternalServerError, "error communicating with strava")
-		return
-	}
-	defer resp.Body.Close()
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		errHandler(w, r, http.StatusInternalServerError, "unable to read strava response")
-		return
-	}
-
-	if resp.StatusCode > 300 {
-		log.Printf("unexpected result from strava getting token: [%d] %s", resp.StatusCode, string(body))
-		errHandler(w, r, http.StatusInternalServerError, "unexpected result from strava")
-		return
-	}
-
-	var OAuthData StravaOAuthTokenResponse
-	err = json.Unmarshal(body, &OAuthData)
-	if err != nil {
-		log.Printf("unable to unmarshal oauth data - %v", err)
-		errHandler(w, r, http.StatusInternalServerError, "unexpected result structure from strava")
+		errHandler(w, r, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -390,7 +400,7 @@ func tokenHandler(w http.ResponseWriter, r *http.Request) {
 	// set AuthCookieName and redirect
 
 	mac := hmac.New(sha256.New, []byte(HMAC_KEY))
-	_, err = mac.Write(body)
+	_, err = mac.Write(rawBody)
 	if err != nil {
 		log.Printf("unable to encode data for auth cookie - %v", err)
 		errHandler(w, r, http.StatusInternalServerError, "error encoding auth cookie")
@@ -399,8 +409,8 @@ func tokenHandler(w http.ResponseWriter, r *http.Request) {
 
 	cookie := http.Cookie{}
 	cookie.Name = AuthCookieName
-	cookie.Value = base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s%s%s", string(body), "::hmac::", string(mac.Sum(nil)))))
-	cookie.Expires = time.Now().Add(time.Hour * time.Duration(COOKIE_EXPIRY))
+	cookie.Value = base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s%s%s", string(rawBody), "::hmac::", string(mac.Sum(nil)))))
+	cookie.Expires = time.Now().Add(COOKIE_EXPIRY)
 
 	http.SetCookie(w, &cookie)
 
@@ -410,48 +420,50 @@ func tokenHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("Redirecting to /app..."))
 }
 
+// StravaOAuthTokenEndpoint takes in code Strava sends to the domain callback URL and sends it back to Strava to get OAuth data.
+func StravaOAuthTokenEndpoint(code string) (StravaOAuthTokenResponse, []byte, error) {
+	var OAuthData StravaOAuthTokenResponse
+
+	requestData := struct {
+		ClientID     string `json:"client_id"`
+		ClientSecret string `json:"client_secret"`
+		Code         string `json:"code"`
+	}{
+		STRAVA_CLIENT_ID, STRAVA_CLIENT_SECRET, code,
+	}
+	b, err := json.Marshal(requestData)
+	if err != nil {
+		log.Printf("error marshalling requestData - %v", err)
+		return OAuthData, nil, errors.New("unable to prepare data for oauth token request")
+	}
+
+	resp, err := http.Post("https://www.strava.com/oauth/token", "application/json", bytes.NewReader(b))
+	if err != nil {
+		log.Println("error posting to strava oauth token endpoint - %v", err)
+		return OAuthData, nil, errors.New("error communicating with strava")
+	}
+	defer resp.Body.Close()
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return OAuthData, nil, errors.New("unable to read strava response")
+	}
+
+	if resp.StatusCode > 300 {
+		log.Printf("unexpected result from strava getting token: [%d] %s", resp.StatusCode, string(body))
+		return OAuthData, nil, errors.New("unexpected result from strava")
+	}
+
+	err = json.Unmarshal(body, &OAuthData)
+	if err != nil {
+		log.Printf("unable to unmarshal oauth data - %v", err)
+		return OAuthData, nil, errors.New("unexpected result structure from strava")
+	}
+
+	return OAuthData, body, nil
+}
+
+// appHandler presents the app.html template and should be behind the mwAuthenticated middleware
 func appHandler(w http.ResponseWriter, r *http.Request) {
-	// ***********************
-	// grab cookie and validate hmac signatures to ensure no tampering happened
-
-	cookie, err := r.Cookie(AuthCookieName)
-	if err != nil {
-		log.Printf("error obtaining auth cookie - %v", err)
-		authErrHandler(w, r, "Unable to read cookie data. Please sign back in.")
-		return
-	}
-
-	decoded, err := base64.StdEncoding.DecodeString(cookie.Value)
-	if err != nil {
-		log.Printf("error decoding cookie value - %v", decoded)
-		authErrHandler(w, r, "Unable to decode cookie data. Please sign back in.")
-	}
-	parts := strings.Split(string(decoded), "::hmac::")
-	if len(parts) != 2 {
-		log.Printf("missing parts on cookie: %s", cookie)
-		authErrHandler(w, r, "Corrupt cookie data. Please sign back in.")
-		return
-	}
-	marshalled, wantMac := parts[0], parts[1]
-	gotMac := hmac.New(sha256.New, []byte(HMAC_KEY))
-	_, _ = gotMac.Write([]byte(marshalled))
-	if !hmac.Equal(gotMac.Sum(nil), []byte(wantMac)) {
-		log.Printf("macs do not match")
-		authErrHandler(w, r, "Invalid cookie data. Please sign back in.")
-		return
-	}
-
-	var cookieData StravaOAuthTokenResponse
-	err = json.Unmarshal([]byte(marshalled), &cookieData)
-	if err != nil {
-		log.Printf("error marshalling cookie data - %v", err)
-		authErrHandler(w, r, "unable to decode coodie data. Please sign back in.")
-		return
-	}
-
-	// ***********************
-	// load template
-
 	file, err := ioutil.ReadFile("app.html")
 	if err != nil {
 		log.Println("app.html not found")
@@ -463,6 +475,13 @@ func appHandler(w http.ResponseWriter, r *http.Request) {
 		log.Println("unable to parse app.html for rendering - %v", err)
 		errHandler(w, r, http.StatusInternalServerError, "internal error parsing app template")
 	}
+
+	cookieData, err := readAuthCookie(r)
+	if err != nil {
+		log.Println("error reading cookie data in appHandler")
+		authErrHandler(w, r, "unable to read cookie data in app.html. Please log back in.")
+	}
+
 	data := struct {
 		Email string
 	}{
@@ -489,6 +508,82 @@ func errHandler(w http.ResponseWriter, r *http.Request, statusCode int, msg stri
 	log.Printf("%s - [%d] %s", r.URL, statusCode, msg)
 	w.WriteHeader(statusCode)
 	w.Write([]byte(msg))
+}
+
+// readAuthCookie does nearly identical work to the mwAuthenticated, but does no validation
+func readAuthCookie(r *http.Request) (StravaOAuthTokenResponse, error) {
+	var cookieData StravaOAuthTokenResponse
+
+	cookie, err := r.Cookie(AuthCookieName)
+	if err != nil {
+		log.Printf("error obtaining auth cookie - %v", err)
+		return cookieData, errors.New("Unable to read cookie data. Please sign back in.")
+	}
+
+	decoded, err := base64.StdEncoding.DecodeString(cookie.Value)
+	if err != nil {
+		log.Printf("error decoding cookie value - %v", decoded)
+		return cookieData, errors.New("Unable to decode cookie data. Please sign back in.")
+	}
+	parts := strings.Split(string(decoded), "::hmac::")
+	if len(parts) != 2 {
+		log.Printf("missing parts on cookie: %s", cookie)
+		return cookieData, errors.New("Corrupt cookie data. Please sign back in.")
+	}
+	marshalled := parts[0]
+
+	err = json.Unmarshal([]byte(marshalled), &cookieData)
+	if err != nil {
+		log.Printf("error marshalling cookie data - %v", err)
+		return cookieData, errors.New("unable to decode coodie data. Please sign back in.")
+	}
+
+	return cookieData, nil
+}
+
+// mwAuthendicated prevents not authenticated users from proceeding.
+// Authentication is based on the existance of a non-tampered with cookie.
+// The cookie is signed via HMAC and verified before letting the request through
+// to the next handler. Logic is nearly identical to readAuthCookie.
+func mwAuthenticated(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cookie, err := r.Cookie(AuthCookieName)
+		if err != nil {
+			log.Printf("error obtaining auth cookie - %v", err)
+			authErrHandler(w, r, "Unable to read cookie data. Please sign back in.")
+			return
+		}
+
+		decoded, err := base64.StdEncoding.DecodeString(cookie.Value)
+		if err != nil {
+			log.Printf("error decoding cookie value - %v", decoded)
+			authErrHandler(w, r, "Unable to decode cookie data. Please sign back in.")
+		}
+		parts := strings.Split(string(decoded), "::hmac::")
+		if len(parts) != 2 {
+			log.Printf("missing parts on cookie: %s", cookie)
+			authErrHandler(w, r, "Corrupt cookie data. Please sign back in.")
+			return
+		}
+		marshalled, wantMac := parts[0], parts[1]
+		gotMac := hmac.New(sha256.New, []byte(HMAC_KEY))
+		_, _ = gotMac.Write([]byte(marshalled))
+		if !hmac.Equal(gotMac.Sum(nil), []byte(wantMac)) {
+			log.Printf("macs do not match")
+			authErrHandler(w, r, "Invalid cookie data. Please sign back in.")
+			return
+		}
+
+		var cookieData StravaOAuthTokenResponse
+		err = json.Unmarshal([]byte(marshalled), &cookieData)
+		if err != nil {
+			log.Printf("error marshalling cookie data - %v", err)
+			authErrHandler(w, r, "unable to decode coodie data. Please sign back in.")
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
 }
 
 // mwLogRequest is a middleware that times each request and logs it
@@ -524,12 +619,12 @@ func warningMissingConfigs() {
 	}
 }
 
-// Constructs the dataSourceName string
+// DataSourceName exists to form the DSN (data source name) string
 type DataSourceName struct {
 	User, Password, Host, Port, DBName, Raw string
 }
 
-// Method to get the constructed string
+// String provides the constructed DSN (data source name) string
 func (d *DataSourceName) String() string {
 	// username:password@protocol(address)/dbname?param=value
 	if len(d.Raw) > 0 {

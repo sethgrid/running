@@ -58,5 +58,6 @@ CREATE TABLE `activities` (
 ```
 
 ## TODO:
- - Log to the database relevant metrics (page requests?, user login count?)
+ - Create endpoint for getting days run via local db based on strava data
  - Figure out charity API
+ - Log to the database relevant metrics (page requests?, user login count?)
