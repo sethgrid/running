@@ -2,6 +2,9 @@ package main
 
 import (
 	"bytes"
+	"crypto/hmac"
+	"crypto/sha256"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"flag"
@@ -15,11 +18,10 @@ import (
 	"strings"
 	"time"
 
-	"crypto/hmac"
-	"crypto/sha256"
-
 	"github.com/facebookgo/flagenv"
+	_ "github.com/go-sql-driver/mysql"
 	"github.com/gorilla/mux"
+	"github.com/sethgrid/gencurl"
 )
 
 func init() {
@@ -31,17 +33,25 @@ func init() {
 var MYSQL_DB string
 var MYSQL_USER string
 var MYSQL_PW string
+var MYSQL_HOST string
+var MYSQL_PORT string
 
 var STRAVA_CLIENT_SECRET string
 var STRAVA_CLIENT_ID string
 var STRAVA_ACCESS_TOKEN string
 
 var COOKIE_EXPIRY time.Duration
+var EARLIEST_POLL_UNIX int64
+var POLL_INTERVAL time.Duration
 var HMAC_KEY string
 
+// in-app set up
 const (
-	AuthCookieName = "auth_cookie"
+	AuthCookieName  = "auth_cookie"
+	MysqlDateFormat = "2006-01-02 15:04:05"
 )
+
+var DB *sql.DB
 
 // StravaOAuthTokenResponse is the data we get back after validating a user.
 // Additionally, this is the data stored to the `AuthCookieName` cookie for frontend use.
@@ -53,7 +63,7 @@ type StravaOAuthTokenResponse struct {
 // Athlete represents athlete data from strava
 type Athlete struct {
 	ID                    int     `json:"id"`
-	ResourceState         int     `json:"id"`
+	ResourceState         int     `json:"resource_state"`
 	FirstName             string  `json:"firstname"`
 	LastName              string  `json:"lastname"`
 	ProfileMedium         string  `json:"profile_medium"`
@@ -79,20 +89,62 @@ type Athlete struct {
 	// ignoring clubs, bikes, and shoes
 }
 
+// Activity represents the interesting fields from the list activty endpoint
+type Activity struct {
+	ID        int     `json:"ID"`
+	Distance  float32 `json:"distance"`
+	Type      string  `json:"type"`
+	StartDate string  `json:"start_date"` // 2013-08-24T00:04:12Z
+}
+
 func main() {
 	var port int
 	flag.IntVar(&port, "port", 9000, "port upon which to run")
 	flag.StringVar(&MYSQL_DB, "mysql-db", "db_name", "the mysql database name")
-	flag.StringVar(&MYSQL_USER, "mysql-user", "db_user", "the mysql database user")
-	flag.StringVar(&MYSQL_PW, "mysql-pw", "db_pw", "the mysql database pw")
+	flag.StringVar(&MYSQL_USER, "mysql-user", "root", "the mysql database user")
+	flag.StringVar(&MYSQL_PW, "mysql-pw", "", "the mysql database pw")
+	flag.StringVar(&MYSQL_HOST, "mysql-host", "127.0.0.1", "the mysql database host")
+	flag.StringVar(&MYSQL_PORT, "mysql-port", "3306", "the mysql database port")
 	flag.StringVar(&STRAVA_ACCESS_TOKEN, "strava-access-token", "", "strava provided access token")
 	flag.StringVar(&STRAVA_CLIENT_ID, "strava-client-id", "", "strava provided client id")
 	flag.StringVar(&STRAVA_CLIENT_SECRET, "strava-client-secret", "", "strava provided client secret")
 	flag.StringVar(&HMAC_KEY, "hmac-key", "abc123", "random string used for hmac sum")
+	flag.DurationVar(&POLL_INTERVAL, "poll-interval", time.Hour*12, "set how often we should query Strava to update the runs for each user")
+	flag.Int64Var(&EARLIEST_POLL_UNIX, "earliest-poll-unix", 1420070400, "prevent server from querying data older than this unix timestamp. Default 2015-01-01.")
 	flag.DurationVar(&COOKIE_EXPIRY, "cookie-expiry", time.Hour*168, "set the expiry time on cookies. ex: 5h30m")
 
 	flagenv.Parse()
 	warningMissingConfigs()
+
+	dsn := &DataSourceName{}
+	dsn.User = MYSQL_USER
+	dsn.Password = MYSQL_PW
+	dsn.Host = MYSQL_HOST
+	dsn.Port = MYSQL_PORT
+	dsn.DBName = MYSQL_DB
+
+	var err error
+	DB, err = sql.Open("mysql", dsn.String())
+	if err != nil {
+		log.Fatalf("unable to connect to database. Check mysql-db, mysq-user, and mysql-pw. %v", err)
+	}
+	if err := DB.Ping(); err != nil {
+		log.Fatalf("unable to ping database. Check mysql-db, mysq-user, and mysql-pw. %v", err)
+	}
+	defer DB.Close()
+
+	go func() {
+		// do
+		activityUpdator(-1)
+		// while
+		for {
+			select {
+			case <-time.Tick(POLL_INTERVAL):
+				log.Println("running scheduled activityUpdator")
+				activityUpdator(-1)
+			}
+		}
+	}()
 
 	log.Printf("starting on :%d", port)
 
@@ -105,6 +157,134 @@ func main() {
 	if err := http.ListenAndServe(fmt.Sprintf(":%d", port), r); err != nil {
 		log.Println("unexpected error - %v", err)
 	}
+}
+
+// activityUpdator updates the activites for a user, or all users if -1 is passed in
+func activityUpdator(limitToUserID int) {
+	log.Println("running activityUpdator...")
+	limitQuery := ""
+	if limitToUserID > 0 {
+		limitQuery = fmt.Sprintf(" where id=%d", limitToUserID)
+	}
+
+	rows, err := DB.Query("select strava_id, oauth_token, updated_at from users" + limitQuery)
+	if err != nil {
+		log.Printf("error querying database - %v", err)
+		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var stravaID int
+		var oAuthToken string
+		var updatedAt time.Time
+		if err := rows.Scan(&stravaID, &oAuthToken, &updatedAt); err != nil {
+			log.Printf("error scanning for oauth token - %v", err)
+		}
+		activities := listAthleteActivities(oAuthToken, updatedAt.Unix())
+		for _, activity := range activities {
+			if activity.Type != "Run" {
+				continue
+			}
+			startTime, err := time.Parse("2006-01-02T15:04:05Z", activity.StartDate)
+			if err != nil {
+				log.Printf("error parsing time from activities - %v", err)
+				continue
+			}
+			startDate := startTime.Format(MysqlDateFormat)
+			now := time.Now().Format(MysqlDateFormat)
+			_, err = DB.Exec(`insert into activities (strava_id, distance, start_date, created_at) values (?, ?, ?, ?) ON DUPLICATE KEY UPDATE strava_id=strava_id`, activity.ID, activity.Distance, startDate, now)
+			if err != nil {
+				log.Printf("error inserting into activities - %v", err)
+				continue
+			}
+			_, err = DB.Exec(`update users set last_activity_update=? where strava_id=? limit 1`, now, stravaID)
+			if err != nil {
+				log.Printf("error updating user with activity - %v", err)
+				continue
+			}
+		}
+
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("error post scan for oauth token - %v", err)
+	}
+	log.Println("activityUpdator complete")
+}
+
+func listAthleteActivities(oAuthToken string, startUnix int64) []Activity {
+	var activities []Activity
+
+	cli := &http.Client{}
+	requestQuery := fmt.Sprintf("?after=%d", EARLIEST_POLL_UNIX)
+	if startUnix > 0 {
+		requestQuery = fmt.Sprintf("?after=%d", startUnix)
+	}
+	req, err := http.NewRequest("GET", "https://www.strava.com/api/v3/athlete/activities"+requestQuery, strings.NewReader(""))
+	if err != nil {
+		log.Printf("error setting up new request to activities - %v", err)
+		return activities
+	}
+	defer req.Body.Close()
+
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", oAuthToken))
+	resp, err := cli.Do(req)
+	if err != nil {
+		log.Printf("error getting response for activities - %v", err)
+		return activities
+	}
+	defer resp.Body.Close()
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		log.Printf("error reading response body for activities - %v", err)
+		return activities
+	}
+	if resp.StatusCode > 300 {
+		log.Printf("unexected response getting activities - %s %s", gencurl.FromRequest(req), string(body))
+		return activities
+	}
+
+	err = json.Unmarshal(body, &activities)
+	if err != nil {
+		log.Printf("error marshalling activities  %s - %v", string(body), err)
+		return activities
+	}
+
+	return activities
+}
+
+func checkAndSetUser(stravaID int, email string, oAuthToken string) {
+	var ID int
+	var previousEmail string
+	var previousOAuthToken string
+	err := DB.QueryRow(`select id, email, oauth_token from users where strava_id=?`, stravaID).Scan(&ID, &previousEmail, &previousOAuthToken)
+	if err != nil && err != sql.ErrNoRows {
+		log.Printf("error checking if user exists - %v", err)
+		return
+	}
+	now := time.Now().Format(MysqlDateFormat)
+
+	if ID == 0 {
+		result, err := DB.Exec(`insert into users (strava_id, email, oauth_token, updated_at, created_at) values (?, ?, ?, ?, ?)`, stravaID, email, oAuthToken, now, now)
+		if err != nil {
+			log.Printf("error inserting new users into database - %v", err)
+			return
+		}
+		insertedID, err := result.LastInsertId()
+		ID = int(insertedID)
+		if err != nil {
+			log.Printf("error getting inserted id - %v")
+			return
+		}
+	} else if email != previousEmail || oAuthToken != previousOAuthToken {
+		_, err := DB.Exec(`update user set email=?, oauth_token=?, updated_at=? where strava_id=? limit 1`, email, oAuthToken, now)
+		if err != nil {
+			log.Printf("error updating user record in database - %v", err)
+			return
+		}
+	}
+
+	activityUpdator(ID)
 }
 
 // homeHandler presents the index.html template
@@ -201,8 +381,14 @@ func tokenHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// **************************************************************
+	// make sure user is set up in the db - can be done in background
+
+	go checkAndSetUser(OAuthData.StravaAthlete.ID, OAuthData.StravaAthlete.Email, OAuthData.AccessToken)
+
 	// ****************************
 	// set AuthCookieName and redirect
+
 	mac := hmac.New(sha256.New, []byte(HMAC_KEY))
 	_, err = mac.Write(body)
 	if err != nil {
@@ -336,4 +522,36 @@ func warningMissingConfigs() {
 	if MYSQL_USER == "root" {
 		log.Println("Warning: using root as mysql-user.")
 	}
+}
+
+// Constructs the dataSourceName string
+type DataSourceName struct {
+	User, Password, Host, Port, DBName, Raw string
+}
+
+// Method to get the constructed string
+func (d *DataSourceName) String() string {
+	// username:password@protocol(address)/dbname?param=value
+	if len(d.Raw) > 0 {
+		// mutate the DataSourceObject for logging elsewhere
+		// we could populate the whole object, but yagni
+		s := strings.Split(d.Raw, "/")
+		d.DBName = s[len(s)-1]
+
+		return d.Raw
+	}
+
+	var hostAndPort string
+	if len(d.Port) > 0 {
+		hostAndPort = fmt.Sprintf("@tcp(%s:%s)", d.Host, d.Port)
+	} else {
+		hostAndPort = d.Host
+	}
+
+	var pw string
+	if len(d.Password) > 0 {
+		pw = ":" + d.Password
+	}
+
+	return fmt.Sprintf("%s%s%s/%s?parseTime=true", d.User, pw, hostAndPort, d.DBName)
 }
