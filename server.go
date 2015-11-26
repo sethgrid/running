@@ -16,6 +16,7 @@ import (
 	"math/rand"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -50,6 +51,10 @@ var HMAC_KEY string             // for signing the cookie to detect tampering
 const (
 	AuthCookieName  = "auth_cookie"
 	MysqlDateFormat = "2006-01-02 15:04:05"
+
+	// used in summary endpoint and functions
+	ErrBadRequest = "bad request - invalid id or bearer token"
+	ErrDB         = "database error occured"
 )
 
 // DB is concurrent access safe
@@ -164,13 +169,15 @@ func main() {
 
 	r := mux.NewRouter()
 
-	// unauthenticated endpoints
+	// unauthenticated HTML endpoints
 	r.Handle("/", mwLogRequest(http.HandlerFunc(homeHandler)))
 	r.Handle("/token_exchange", mwLogRequest(http.HandlerFunc(tokenHandler)))
 
-	// authenticated endpoints
+	// authenticated HTML endpoints
 	r.Handle("/app", mwLogRequest(mwAuthenticated(http.HandlerFunc(appHandler))))
-	r.Handle("/user/{id:[0-9]+}/summary", mwLogRequest(mwAuthenticated(http.HandlerFunc(userSummaryHandler))))
+
+	// unauthenticated JSON endpoints
+	r.Handle("/user/{id:[0-9]+}/summary", mwLogRequest(http.HandlerFunc(userSummaryHandler)))
 
 	if err := http.ListenAndServe(fmt.Sprintf(":%d", port), r); err != nil {
 		log.Println("unexpected error serving application - %v", err)
@@ -307,32 +314,59 @@ func checkAndSetUser(stravaID int, email string, oAuthToken string) {
 	activityUpdator(ID)
 }
 
-// userSummaryHandler grabs locally stored data for the user and should be behind mwAuthenticated middleware
+// userSummaryHandler grabs locally stored data for the user and does not need to be behind mwAuthenticated middleware
 func userSummaryHandler(w http.ResponseWriter, r *http.Request) {
-	// figure out authentication middleware
-	//    id, ok := mux.Vars(r)["id"]
-	// if !ok {
-	// 	errHandler(w, r, http.StatusBadRequest, "missing user id")
-	// 	return
-	// }
-	// parts := strings.Split(r.Header.Get("Authorization"), " ")
-	// if len(parts) != 2 {
-	// 	errHandler(w, r, http.StatusBadRequest, "unable to get authorization header bearer token")
-	// 	return
-	// }
-	//    token := parts[1]
-	//    existingCookie := r.Cookie(AuthCookieName).Value
+	idStr, ok := mux.Vars(r)["id"]
+	if !ok {
+		errHandler(w, r, http.StatusBadRequest, "missing user id")
+		return
+	}
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		log.Printf("error converting id to string - %v", err)
+		errHandler(w, r, http.StatusBadRequest, "unable to read numerical user id")
+		return
+	}
+	parts := strings.Split(r.Header.Get("Authorization"), " ")
+	if len(parts) != 2 {
+		errHandler(w, r, http.StatusBadRequest, "unable to get authorization header bearer token")
+		return
+	}
+	passedInToken := parts[1]
 
-	//    /// maybe not needed if we have auth middleware?
-	//    if !validCookie(existingCookie){
-	//        authErrHandler(w, r, msg)
-	//    }
+	summary, err := getSummary(id, passedInToken)
+	if err != nil && err.Error() == ErrDB {
+		errHandler(w, r, http.StatusInternalServerError, `{"error":"unexpected database error preparing summary"}`)
+		return
+	} else if err != nil && err.Error() == ErrBadRequest {
+		errHandler(w, r, http.StatusBadRequest, `{"error":"invalid id or bearer token"}`)
+		return
+	} else if err != nil {
+		errHandler(w, r, http.StatusInternalServerError, `{"error":"unexpected error preparing summary"}`)
+		return
+	}
 
-	//    cookieData := extractCookieData(existingCookie)
+	if err = json.NewEncoder(w).Encode(summary); err != nil {
+		errHandler(w, r, http.StatusInternalServerError, `{"error":"unexpected error presenting summary"}`)
+		return
+	}
+}
 
-	//    // now we have cookieData.?.stravaID
-	//    obj := getSummary(stravaID)
-	//    return json.marshal(obj)
+// Summary provides a listing of all days of since the EARLIEST_POLL_UNIX and if those days have been ran.
+//It also provides a running total.
+type Summary struct {
+	Results []struct {
+		Date string `json:"date"`
+		Ran  bool   `json:"ran"`
+	} `json:"results"`
+	DaysRan int `json:"days_ran"`
+}
+
+// getSummary finds all matching activities in the db for a given strava id and token.
+// TODO: flesh it out
+func getSummary(stravaID int, oAuthToken string) (Summary, error) {
+	var summary Summary
+	return summary, nil
 }
 
 // homeHandler presents the index.html template

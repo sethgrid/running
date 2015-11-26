@@ -21,6 +21,23 @@ To see a listing of all flags that can be used, use `-h`.
 $ go run server.go -h
 ```
 
+## Endpoints
+```
+    # root, provides the login with strava ability
+    /
+
+    # strava domain callback url, used for logging in with strava
+    /token_exchange
+
+    # this is where users interact with the service
+    # they should see a summary of their activities and
+    # be able to interact with charities
+    /app
+
+    # provides data on days ran, to be used in /app
+    /user/{strava_id}/summary -H 'Authentication: Bearer 100000000a'
+```
+
 ## Program Flow
 
 The index page `/` provides a link to log in via your Strava account. This takes the user to Strava to authenticate. A callback URL returns the user where the Strava data is authenticated against. The Strava data is stored as a cookie (`auth_cookie`), the user is either created or updated, the user's activities are polled, and the user is forwarded to the main application page `/app`.
@@ -29,6 +46,9 @@ Meanwhile, a background job periodically queries for updates to user activities 
 
 ## Security
 The `auth_cookie` is stored locally on the end-user's side and is signed via HMAC. If the data is tampered, then the HMAC signature is invalidated and the auth_cookie will no longer validate. The user must sign back in.
+
+## Javascript access to data
+Read in the `auth_cookie`, base64 decode it, split on `::hmac::`. The first part will be the json string representing the currently logged in user. The `access_token` can be used in any endpoint for this service needing an authentication bearer token. Additionally, the `athlete.id` is the id to refer to when making calls on behalf of the user to this service.
 
 ## Database
 ```
