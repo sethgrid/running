@@ -58,9 +58,5 @@ CREATE TABLE `activities` (
 ```
 
 ## TODO:
- - Grab running data on behalf of the user
- - Design initial DB schema
- - Log to database created at, email address
- - Log to the database relevant running data
- - Log to the database relevant metrics (last login)
+ - Log to the database relevant metrics (page requests?, user login count?)
  - Figure out charity API
