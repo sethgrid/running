@@ -578,12 +578,14 @@ func appHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Println("unable to parse app.html for rendering - %v", err)
 		errHandler(w, r, http.StatusInternalServerError, "internal error parsing app template")
+		return
 	}
 
 	cookieData, err := readAuthCookie(r)
 	if err != nil {
 		log.Println("error reading cookie data in appHandler")
 		authErrHandler(w, r, "unable to read cookie data in app.html. Please log back in.")
+		return
 	}
 
 	data := struct {
@@ -596,6 +598,7 @@ func appHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("error executing template in appHandler - %v", err)
 		errHandler(w, r, http.StatusInternalServerError, "internal error executing app template")
+		return
 	}
 }
 
@@ -634,7 +637,7 @@ func readAuthCookie(r *http.Request) (StravaOAuthTokenResponse, error) {
 
 	decoded, err := base64.StdEncoding.DecodeString(cookie.Value)
 	if err != nil {
-		log.Printf("error decoding cookie value - %v", decoded)
+		log.Printf("error decoding cookie value - %s", string(decoded))
 		return cookieData, errors.New("Unable to decode cookie data. Please sign back in.")
 	}
 	parts := strings.Split(string(decoded), "::hmac::")
