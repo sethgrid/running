@@ -37,7 +37,8 @@ $ go run server.go -h
     # provides data on days ran, to be used in /app
     # optional parameter: -d '{"start_date":"2015-11-25"}'
     # otherwise defaults to the config EARLIEST_POLL_UNIX
-    /user/{strava_id}/summary -H 'Authentication: Bearer 100000000a'
+    # returns {"result":{date_1: true, date_2: false, ...}, "days_ran": 5}
+    /user/{strava_id}/summary -H 'Authorization: Bearer 100000000a'
 ```
 
 ## Program Flow
