@@ -35,6 +35,8 @@ $ go run server.go -h
     /app
 
     # provides data on days ran, to be used in /app
+    # optional parameter: -d '{"start_date":"2015-11-25"}'
+    # otherwise defaults to the config EARLIEST_POLL_UNIX
     /user/{strava_id}/summary -H 'Authentication: Bearer 100000000a'
 ```
 
@@ -67,14 +69,15 @@ CREATE TABLE `users` (
 
 CREATE TABLE `activities` (
   `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
+  `user_id` int(11) unsigned NOT NULL,
   `strava_id` int(11) NOT NULL,
   `distance` float DEFAULT '0',
   `start_date` datetime DEFAULT NULL,
   `created_at` datetime DEFAULT NULL,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `strava_id_2` (`strava_id`),
-  KEY `strava_id` (`strava_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=12 DEFAULT CHARSET=utf8;
+  KEY `strava_id` (`strava_id`),
+  UNIQUE (`strava_id`)
+) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8;
 ```
 
 ## TODO:

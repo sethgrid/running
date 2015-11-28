@@ -51,6 +51,7 @@ var HMAC_KEY string             // for signing the cookie to detect tampering
 const (
 	AuthCookieName  = "auth_cookie"
 	MysqlDateFormat = "2006-01-02 15:04:05"
+	DateAsYMD       = "2006-01-02"
 
 	// used in summary endpoint and functions
 	ErrBadRequest = "bad request - invalid id or bearer token"
@@ -192,7 +193,7 @@ func activityUpdator(limitToUserID int) {
 		limitQuery = fmt.Sprintf(" where id=%d", limitToUserID)
 	}
 
-	rows, err := DB.Query("select strava_id, oauth_token, updated_at from users" + limitQuery)
+	rows, err := DB.Query("select id, strava_id, oauth_token, updated_at from users" + limitQuery)
 	if err != nil {
 		log.Printf("error querying database - %v", err)
 		return
@@ -200,10 +201,11 @@ func activityUpdator(limitToUserID int) {
 	defer rows.Close()
 
 	for rows.Next() {
+		var userID int
 		var stravaID int
 		var oAuthToken string
 		var updatedAt time.Time
-		if err := rows.Scan(&stravaID, &oAuthToken, &updatedAt); err != nil {
+		if err := rows.Scan(&userID, &stravaID, &oAuthToken, &updatedAt); err != nil {
 			log.Printf("error scanning for oauth token - %v", err)
 		}
 		activities := listAthleteActivities(oAuthToken, updatedAt.Unix())
@@ -218,7 +220,7 @@ func activityUpdator(limitToUserID int) {
 			}
 			startDate := startTime.Format(MysqlDateFormat)
 			now := time.Now().Format(MysqlDateFormat)
-			_, err = DB.Exec(`insert into activities (strava_id, distance, start_date, created_at) values (?, ?, ?, ?) ON DUPLICATE KEY UPDATE strava_id=strava_id`, activity.ID, activity.Distance, startDate, now)
+			_, err = DB.Exec(`insert into activities (user_id, strava_id, distance, start_date, created_at) values (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE strava_id=strava_id`, userID, activity.ID, activity.Distance, startDate, now)
 			if err != nil {
 				log.Printf("error inserting into activities - %v", err)
 				continue
@@ -318,36 +320,62 @@ func checkAndSetUser(stravaID int, email string, oAuthToken string) {
 func userSummaryHandler(w http.ResponseWriter, r *http.Request) {
 	idStr, ok := mux.Vars(r)["id"]
 	if !ok {
-		errHandler(w, r, http.StatusBadRequest, "missing user id")
+		errJSONHandler(w, r, http.StatusBadRequest, "missing user id")
 		return
 	}
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
 		log.Printf("error converting id to string - %v", err)
-		errHandler(w, r, http.StatusBadRequest, "unable to read numerical user id")
+		errJSONHandler(w, r, http.StatusBadRequest, "unable to read numerical user id")
 		return
 	}
 	parts := strings.Split(r.Header.Get("Authorization"), " ")
 	if len(parts) != 2 {
-		errHandler(w, r, http.StatusBadRequest, "unable to get authorization header bearer token")
+		errJSONHandler(w, r, http.StatusBadRequest, "unable to get authorization header bearer token")
 		return
 	}
 	passedInToken := parts[1]
 
-	summary, err := getSummary(id, passedInToken)
+	requestBody, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		log.Printf("error reading request body in summary handler - %v", err)
+		errJSONHandler(w, r, http.StatusBadRequest, "unable to read request body")
+		return
+	}
+	var RequestBody struct {
+		StartDate string `json:"start_date"`
+	}
+	err = json.Unmarshal(requestBody, &RequestBody)
+	if err != nil && len(requestBody) > 0 {
+		log.Printf("error unmarshalling request body in summary handler - %v", err)
+		errJSONHandler(w, r, http.StatusBadRequest, "make sure you are returning start_date set to YYYY-MM-DD")
+		return
+	}
+
+	startTime := time.Unix(EARLIEST_POLL_UNIX, 0)
+	if RequestBody.StartDate != "" {
+		startTime, err = time.Parse("2006-01-02", RequestBody.StartDate)
+		if err != nil {
+			log.Printf("error parsing date format in request body in summary handler - %v", err)
+			errJSONHandler(w, r, http.StatusBadRequest, "please use the date format YYYY-MM-DD, ex: 2006-01-02")
+			return
+		}
+	}
+
+	summary, err := getSummary(id, passedInToken, startTime)
 	if err != nil && err.Error() == ErrDB {
-		errHandler(w, r, http.StatusInternalServerError, `{"error":"unexpected database error preparing summary"}`)
+		errJSONHandler(w, r, http.StatusInternalServerError, "unexpected database error preparing summary")
 		return
 	} else if err != nil && err.Error() == ErrBadRequest {
-		errHandler(w, r, http.StatusBadRequest, `{"error":"invalid id or bearer token"}`)
+		errJSONHandler(w, r, http.StatusBadRequest, "invalid id or bearer token")
 		return
 	} else if err != nil {
-		errHandler(w, r, http.StatusInternalServerError, `{"error":"unexpected error preparing summary"}`)
+		errJSONHandler(w, r, http.StatusInternalServerError, "unexpected error preparing summary")
 		return
 	}
 
 	if err = json.NewEncoder(w).Encode(summary); err != nil {
-		errHandler(w, r, http.StatusInternalServerError, `{"error":"unexpected error presenting summary"}`)
+		errJSONHandler(w, r, http.StatusInternalServerError, "unexpected error presenting summary")
 		return
 	}
 }
@@ -355,17 +383,59 @@ func userSummaryHandler(w http.ResponseWriter, r *http.Request) {
 // Summary provides a listing of all days of since the EARLIEST_POLL_UNIX and if those days have been ran.
 //It also provides a running total.
 type Summary struct {
-	Results []struct {
-		Date string `json:"date"`
-		Ran  bool   `json:"ran"`
-	} `json:"results"`
-	DaysRan int `json:"days_ran"`
+	Results map[string]bool `json:"results"`
+	DaysRan int             `json:"days_ran"`
 }
 
 // getSummary finds all matching activities in the db for a given strava id and token.
-// TODO: flesh it out
-func getSummary(stravaID int, oAuthToken string) (Summary, error) {
+func getSummary(stravaID int, oAuthToken string, start time.Time) (Summary, error) {
 	var summary Summary
+	summary.Results = make(map[string]bool)
+
+	// verify that this user exists in our records
+	var internalID int
+	checkQuery := "select id from users where users.strava_id=? and users.oauth_token=?"
+	err := DB.QueryRow(checkQuery, stravaID, oAuthToken).Scan(&internalID)
+	if err != nil && err == sql.ErrNoRows {
+		log.Printf("error finding any locally stored users for strava id %d with given token", stravaID)
+		return summary, errors.New(ErrBadRequest)
+	} else if err != nil {
+		log.Printf("error checking for user and bearer token - %v", err)
+		return summary, err
+	}
+
+	// get user's activities
+	activitiesQuery := "select activities.start_date from users left join activities on users.id=activities.user_id where users.strava_id=? and activities.start_date>?"
+	log.Printf("query: %s; strava_id: %d", activitiesQuery, stravaID, start.Format(MysqlDateFormat))
+	rows, err := DB.Query(activitiesQuery, stravaID, start.Format(MysqlDateFormat))
+	if err != nil {
+		log.Printf("error getting local activity records for strava id %d - %v", stravaID, err)
+		return summary, errors.New(ErrDB)
+	}
+
+	// seed the return
+	date := start
+	for date.Unix() < time.Now().Unix() {
+		summary.Results[start.Format(DateAsYMD)] = false
+		date = date.Add(time.Hour * 24)
+	}
+
+	daysRan := 0
+	for rows.Next() {
+		var start_date time.Time
+		if err := rows.Scan(&start_date); err != nil {
+			log.Printf("error scanning for start_date - %v", err)
+			continue
+		}
+		if alreadyRan, exists := summary.Results[start_date.Format(DateAsYMD)]; !exists || alreadyRan == false {
+			// only increment days ran if this is a new run on a new day
+			daysRan++
+		}
+		summary.Results[start_date.Format(DateAsYMD)] = true
+
+	}
+	summary.DaysRan = daysRan
+
 	return summary, nil
 }
 
@@ -542,6 +612,14 @@ func errHandler(w http.ResponseWriter, r *http.Request, statusCode int, msg stri
 	log.Printf("%s - [%d] %s", r.URL, statusCode, msg)
 	w.WriteHeader(statusCode)
 	w.Write([]byte(msg))
+}
+
+// errJSONHandler logs and writes a json message and sets a status code
+func errJSONHandler(w http.ResponseWriter, r *http.Request, statusCode int, msg string) {
+	log.Printf("%s - [%d] %s", r.URL, statusCode, msg)
+	w.WriteHeader(statusCode)
+	returnMsg := fmt.Sprintf(`{"result":"%s"}`, msg)
+	w.Write([]byte(returnMsg))
 }
 
 // readAuthCookie does nearly identical work to the mwAuthenticated, but does no validation
