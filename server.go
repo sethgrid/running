@@ -41,9 +41,11 @@ var MYSQL_PORT string
 var STRAVA_CLIENT_SECRET string
 var STRAVA_CLIENT_ID string
 var STRAVA_ACCESS_TOKEN string
+var STRAVA_BASE_URL string
 
 var CROWDRISE_API_KEY string
 var CROWDRISE_API_SECRET string
+var CROWDRISE_BASE_URL string
 
 var COOKIE_EXPIRY time.Duration // how long the cookie will be valid
 var EARLIEST_POLL_UNIX int64    // the earliest unix timestamp for which we will try to get running info
@@ -122,8 +124,10 @@ func main() {
 	flag.StringVar(&STRAVA_ACCESS_TOKEN, "strava-access-token", "", "strava provided access token")
 	flag.StringVar(&STRAVA_CLIENT_ID, "strava-client-id", "", "strava provided client id")
 	flag.StringVar(&STRAVA_CLIENT_SECRET, "strava-client-secret", "", "strava provided client secret")
+	flag.StringVar(&STRAVA_BASE_URL, "strava-base-url", "https://www.strava.com", "strava scheme and domain")
 	flag.StringVar(&CROWDRISE_API_KEY, "crowdrise-api-key", "", "crowdrise provided api key")
 	flag.StringVar(&CROWDRISE_API_SECRET, "crowdrise-api-secret", "", "crowdrise provided api secret")
+	flag.StringVar(&CROWDRISE_BASE_URL, "crowdrise-base-url", "https://www.crowdrise.com", "crowdrise scheme and domain")
 	flag.StringVar(&HMAC_KEY, "hmac-key", "abc123", "random string used for hmac sum")
 	flag.DurationVar(&POLL_INTERVAL, "poll-interval", time.Hour*12, "set how often we should query Strava to update the runs for each user")
 	flag.Int64Var(&EARLIEST_POLL_UNIX, "earliest-poll-unix", 1420070400, "prevent server from querying data older than this unix timestamp. Default 2015-01-01.")
@@ -178,6 +182,7 @@ func main() {
 	// unauthenticated HTML endpoints
 	r.Handle("/", mwLogRequest(http.HandlerFunc(homeHandler)))
 	r.Handle("/token_exchange", mwLogRequest(http.HandlerFunc(tokenHandler)))
+	// foo handler is here to test proxy request. set the crowdrise base url to this service and hit /foo to see how reqeusts behave. to be deleted
 	r.Handle("/foo", mwLogRequest(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(fmt.Sprintf("url: %#v\nreq: %#v", r.URL, r)))
 	})))
@@ -574,14 +579,27 @@ func crowdRiseReverseProxyHandler(w http.ResponseWriter, r *http.Request) {
 		errJSONHandler(w, r, http.StatusBadRequest, "unable to read request body")
 		return
 	}
-	newRequest, err := http.NewRequest(r.Method, fmt.Sprintf("http://localhost:9000/%s", fwdStr), bytes.NewReader(body))
+
+	newRequest, err := http.NewRequest(r.Method, fmt.Sprintf("%s/%s", CROWDRISE_BASE_URL, fwdStr), bytes.NewReader(body))
 	if err != nil {
 		log.Printf("error preparing request for proxy - %v", err)
 		errJSONHandler(w, r, http.StatusInternalServerError, "error preparing proxy request")
 		return
 	}
-	newRequest.URL.Query().Add("api_key", CROWDRISE_API_KEY)
-	newRequest.URL.Query().Add("api_secret", CROWDRISE_API_SECRET)
+
+	// *********
+	// Grab the previous query params and add to them, then attach to the new request
+
+	values := r.URL.Query()
+	for k, v := range r.URL.Query() {
+		for _, element := range v {
+			values.Add(k, element)
+		}
+	}
+	values.Set("api_key", CROWDRISE_API_KEY)
+	values.Set("api_secret", CROWDRISE_API_SECRET)
+
+	newRequest.URL.RawQuery = values.Encode()
 
 	client := &http.Client{}
 	resp, err := client.Do(newRequest)
@@ -619,7 +637,7 @@ func StravaOAuthTokenEndpoint(code string) (StravaOAuthTokenResponse, []byte, er
 		return OAuthData, nil, errors.New("unable to prepare data for oauth token request")
 	}
 
-	resp, err := http.Post("https://www.strava.com/oauth/token", "application/json", bytes.NewReader(b))
+	resp, err := http.Post(fmt.Sprintf("%s/oauth/token", STRAVA_BASE_URL), "application/json", bytes.NewReader(b))
 	if err != nil {
 		log.Println("error posting to strava oauth token endpoint - %v", err)
 		return OAuthData, nil, errors.New("error communicating with strava")
