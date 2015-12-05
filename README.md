@@ -39,6 +39,9 @@ $ go run server.go -h
     # otherwise defaults to the config EARLIEST_POLL_UNIX
     # returns {"result":{date_1: true, date_2: false, ...}, "days_ran": 5}
     /user/{strava_id}/summary -H 'Authorization: Bearer 100000000a'
+
+    # crowdrise proxy endpoints. proxies the request adding the api key and secret
+    /crowdrise/{crowdrise api endpoint}
 ```
 
 ## Program Flow
