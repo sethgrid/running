@@ -42,6 +42,9 @@ var STRAVA_CLIENT_SECRET string
 var STRAVA_CLIENT_ID string
 var STRAVA_ACCESS_TOKEN string
 
+var CROWDRISE_API_KEY string
+var CROWDRISE_API_SECRET string
+
 var COOKIE_EXPIRY time.Duration // how long the cookie will be valid
 var EARLIEST_POLL_UNIX int64    // the earliest unix timestamp for which we will try to get running info
 var POLL_INTERVAL time.Duration // how often to update / sync our records
@@ -119,6 +122,8 @@ func main() {
 	flag.StringVar(&STRAVA_ACCESS_TOKEN, "strava-access-token", "", "strava provided access token")
 	flag.StringVar(&STRAVA_CLIENT_ID, "strava-client-id", "", "strava provided client id")
 	flag.StringVar(&STRAVA_CLIENT_SECRET, "strava-client-secret", "", "strava provided client secret")
+	flag.StringVar(&CROWDRISE_API_KEY, "crowdrise-api-key", "", "crowdrise provided api key")
+	flag.StringVar(&CROWDRISE_API_SECRET, "crowdrise-api-secret", "", "crowdrise provided api secret")
 	flag.StringVar(&HMAC_KEY, "hmac-key", "abc123", "random string used for hmac sum")
 	flag.DurationVar(&POLL_INTERVAL, "poll-interval", time.Hour*12, "set how often we should query Strava to update the runs for each user")
 	flag.Int64Var(&EARLIEST_POLL_UNIX, "earliest-poll-unix", 1420070400, "prevent server from querying data older than this unix timestamp. Default 2015-01-01.")
@@ -173,12 +178,17 @@ func main() {
 	// unauthenticated HTML endpoints
 	r.Handle("/", mwLogRequest(http.HandlerFunc(homeHandler)))
 	r.Handle("/token_exchange", mwLogRequest(http.HandlerFunc(tokenHandler)))
+	r.Handle("/foo", mwLogRequest(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(fmt.Sprintf("url: %#v\nreq: %#v", r.URL, r)))
+	})))
 
 	// authenticated HTML endpoints
 	r.Handle("/app", mwLogRequest(mwAuthenticated(http.HandlerFunc(appHandler))))
 
-	// unauthenticated JSON endpoints
+	// authenticated JSON endpoints via bearer token
 	r.Handle("/user/{id:[0-9]+}/summary", mwLogRequest(http.HandlerFunc(userSummaryHandler)))
+
+	r.Handle(`/crowdrise/{rest:[a-zA-Z0-9=\-\/]+}`, mwLogRequest(http.HandlerFunc(crowdRiseReverseProxyHandler)))
 
 	if err := http.ListenAndServe(fmt.Sprintf(":%d", port), r); err != nil {
 		log.Println("unexpected error serving application - %v", err)
@@ -522,6 +532,74 @@ func tokenHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Location", "/app")
 	w.WriteHeader(301)
 	w.Write([]byte("Redirecting to /app..."))
+}
+
+// crowdRiseReverseProxyHandler is a reverse proxy that appends the api user and token to a request and forwards it.
+// use case: the user is logged in and the js frontend is making a request for
+// data to crowdRise. Validate the email/oauth_token combo exists in the db
+// based on the email in the cookie and
+// the reverse proxy the request.
+func crowdRiseReverseProxyHandler(w http.ResponseWriter, r *http.Request) {
+	parts := strings.Split(r.Header.Get("Authorization"), " ")
+	if len(parts) != 2 {
+		errJSONHandler(w, r, http.StatusBadRequest, "unable to get authorization header bearer token")
+		return
+	}
+	passedInToken := parts[1]
+
+	// userID is not used aside to recieve data from the db to validate a user is present
+	var userID int
+	err := DB.QueryRow("select id from users where oauth_token=? limit 1", passedInToken).Scan(&userID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			errJSONHandler(w, r, http.StatusBadRequest, "invalid token, no associated user found")
+			return
+		}
+		log.Println("error with database validating token for reverse proxy")
+		errJSONHandler(w, r, http.StatusBadRequest, "internal database error")
+		return
+	}
+
+	fwdStr, ok := mux.Vars(r)["rest"]
+	if !ok {
+		errJSONHandler(w, r, http.StatusBadRequest, "missing forwarding url")
+		return
+	}
+
+	// ************************************************************
+	// we can assume this request should be forwarded using our key
+	body, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		log.Printf("error reading request body for proxy request - %v", err)
+		errJSONHandler(w, r, http.StatusBadRequest, "unable to read request body")
+		return
+	}
+	newRequest, err := http.NewRequest(r.Method, fmt.Sprintf("http://localhost:9000/%s", fwdStr), bytes.NewReader(body))
+	if err != nil {
+		log.Printf("error preparing request for proxy - %v", err)
+		errJSONHandler(w, r, http.StatusInternalServerError, "error preparing proxy request")
+		return
+	}
+	newRequest.URL.Query().Add("api_key", CROWDRISE_API_KEY)
+	newRequest.URL.Query().Add("api_secret", CROWDRISE_API_SECRET)
+
+	client := &http.Client{}
+	resp, err := client.Do(newRequest)
+	if err != nil {
+		log.Printf("error forwarding request to crowdrise = %v", err)
+		errJSONHandler(w, r, http.StatusInternalServerError, "error proxying request to crowdrise")
+		return
+	}
+	defer resp.Body.Close()
+	respBody, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		log.Printf("error reading response body from proxy request - %v", err)
+		errJSONHandler(w, r, http.StatusInternalServerError, "unable to read response from crowdrise")
+		return
+	}
+	w.Write(respBody)
+	w.WriteHeader(resp.StatusCode)
+	log.Printf("crowdrise proxy request complete")
 }
 
 // StravaOAuthTokenEndpoint takes in code Strava sends to the domain callback URL and sends it back to Strava to get OAuth data.
