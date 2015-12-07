@@ -178,21 +178,20 @@ func main() {
 	log.Printf("starting on :%d", port)
 
 	r := mux.NewRouter()
+	r.StrictSlash(false)
+	// set up the file server to serve public assets
+	assets := http.FileServer(http.Dir("assets"))
+	r.PathPrefix("/assets/").Handler(mwLogRequest(http.StripPrefix("/assets/", assets)))
 
 	// unauthenticated HTML endpoints
 	r.Handle("/", mwLogRequest(http.HandlerFunc(homeHandler)))
 	r.Handle("/token_exchange", mwLogRequest(http.HandlerFunc(tokenHandler)))
-	// foo handler is here to test proxy request. set the crowdrise base url to this service and hit /foo to see how reqeusts behave. to be deleted
-	r.Handle("/foo", mwLogRequest(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(fmt.Sprintf("url: %#v\nreq: %#v", r.URL, r)))
-	})))
 
 	// authenticated HTML endpoints
 	r.Handle("/app", mwLogRequest(mwAuthenticated(http.HandlerFunc(appHandler))))
 
 	// authenticated JSON endpoints via bearer token
 	r.Handle("/user/{id:[0-9]+}/summary", mwLogRequest(http.HandlerFunc(userSummaryHandler)))
-
 	r.Handle(`/crowdrise/{rest:[a-zA-Z0-9=\-\/]+}`, mwLogRequest(http.HandlerFunc(crowdRiseReverseProxyHandler)))
 
 	if err := http.ListenAndServe(fmt.Sprintf(":%d", port), r); err != nil {
@@ -396,10 +395,14 @@ func userSummaryHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // Summary provides a listing of all days of since the EARLIEST_POLL_UNIX and if those days have been ran.
-//It also provides a running total.
+// It also provides a running total and basic user information
 type Summary struct {
-	Results map[string]bool `json:"results"`
-	DaysRan int             `json:"days_ran"`
+	Results           map[string]bool `json:"results"`
+	DaysRan           int             `json:"days_ran"`
+	UserID            int             `json:"user_id"`
+	Email             string          `json:"email"`
+	StravaID          int             `json:"strava_id"`
+	CrowdRiseUsername string          `json"crowdrise_username"`
 }
 
 // getSummary finds all matching activities in the db for a given strava id and token.
@@ -409,8 +412,10 @@ func getSummary(stravaID int, oAuthToken string, start time.Time) (Summary, erro
 
 	// verify that this user exists in our records
 	var internalID int
-	checkQuery := "select id from users where users.strava_id=? and users.oauth_token=?"
-	err := DB.QueryRow(checkQuery, stravaID, oAuthToken).Scan(&internalID)
+	var email string
+	var crowdriseUsername sql.NullString
+	checkQuery := "select id, email, crowdrise_username from users where users.strava_id=? and users.oauth_token=?"
+	err := DB.QueryRow(checkQuery, stravaID, oAuthToken).Scan(&internalID, &email, &crowdriseUsername)
 	if err != nil && err == sql.ErrNoRows {
 		log.Printf("error finding any locally stored users for strava id %d with given token", stravaID)
 		return summary, errors.New(ErrBadRequest)
@@ -421,7 +426,7 @@ func getSummary(stravaID int, oAuthToken string, start time.Time) (Summary, erro
 
 	// get user's activities
 	activitiesQuery := "select activities.start_date from users left join activities on users.id=activities.user_id where users.strava_id=? and activities.start_date>?"
-	log.Printf("query: %s; strava_id: %d", activitiesQuery, stravaID, start.Format(MysqlDateFormat))
+
 	rows, err := DB.Query(activitiesQuery, stravaID, start.Format(MysqlDateFormat))
 	if err != nil {
 		log.Printf("error getting local activity records for strava id %d - %v", stravaID, err)
@@ -450,6 +455,10 @@ func getSummary(stravaID int, oAuthToken string, start time.Time) (Summary, erro
 
 	}
 	summary.DaysRan = daysRan
+	summary.UserID = internalID
+	summary.Email = email
+	summary.StravaID = stravaID
+	summary.CrowdRiseUsername = crowdriseUsername.String
 
 	return summary, nil
 }
@@ -528,7 +537,7 @@ func tokenHandler(w http.ResponseWriter, r *http.Request) {
 
 	cookie := http.Cookie{}
 	cookie.Name = AuthCookieName
-	cookie.Value = base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s%s%s", string(rawBody), "::hmac::", string(mac.Sum(nil)))))
+	cookie.Value = padBase64(base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s%s%s", string(rawBody), "::hmac::", base64.StdEncoding.EncodeToString((mac.Sum(nil)))))))
 	cookie.Expires = time.Now().Add(COOKIE_EXPIRY)
 
 	http.SetCookie(w, &cookie)
@@ -552,9 +561,8 @@ func crowdRiseReverseProxyHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	passedInToken := parts[1]
 
-	// userID is not used aside to recieve data from the db to validate a user is present
-	var userID int
-	err := DB.QueryRow("select id from users where oauth_token=? limit 1", passedInToken).Scan(&userID)
+	var email string
+	err := DB.QueryRow("select email from users where oauth_token=? limit 1", passedInToken).Scan(&email)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			errJSONHandler(w, r, http.StatusBadRequest, "invalid token, no associated user found")
@@ -587,12 +595,20 @@ func crowdRiseReverseProxyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// TODO: if the url contains "get_" it should also contain _this_ user's username
+	// this will help prevent spoofing requests for other users
+
 	// *********
 	// Grab the previous query params and add to them, then attach to the new request
 
 	values := r.URL.Query()
 	for k, v := range r.URL.Query() {
 		for _, element := range v {
+			if strings.ToLower(k) == "email" {
+				// prevent requests to crowdrise for OTHER user's emails
+				log.Println("warning - user with email `%s` tried to request for `%s`", email, element)
+				values.Add(k, email)
+			}
 			values.Add(k, element)
 		}
 	}
@@ -615,8 +631,10 @@ func crowdRiseReverseProxyHandler(w http.ResponseWriter, r *http.Request) {
 		errJSONHandler(w, r, http.StatusInternalServerError, "unable to read response from crowdrise")
 		return
 	}
-	w.Write(respBody)
+
+	// TODO: inspect if this was the sign up request and grab the username
 	w.WriteHeader(resp.StatusCode)
+	w.Write(respBody)
 	log.Printf("crowdrise proxy request complete")
 }
 
@@ -776,17 +794,23 @@ func mwAuthenticated(next http.Handler) http.Handler {
 			authErrHandler(w, r, "Corrupt cookie data. Please sign back in.")
 			return
 		}
-		marshalled, wantMac := parts[0], parts[1]
-		gotMac := hmac.New(sha256.New, []byte(HMAC_KEY))
-		_, _ = gotMac.Write([]byte(marshalled))
-		if !hmac.Equal(gotMac.Sum(nil), []byte(wantMac)) {
+		originalJSONToken := parts[0]
+		signedMac, err := base64.StdEncoding.DecodeString(parts[1])
+		if err != nil {
+			log.Printf("error base64 decoding passed in hmac value - %v", err)
+			authErrHandler(w, r, "Unable to decode cookie signature. Please sign back in.")
+			return
+		}
+		computedMac := hmac.New(sha256.New, []byte(HMAC_KEY))
+		_, _ = computedMac.Write([]byte(originalJSONToken))
+		if !hmac.Equal(computedMac.Sum(nil), []byte(signedMac)) {
 			log.Printf("macs do not match")
 			authErrHandler(w, r, "Invalid cookie data. Please sign back in.")
 			return
 		}
 
 		var cookieData StravaOAuthTokenResponse
-		err = json.Unmarshal([]byte(marshalled), &cookieData)
+		err = json.Unmarshal([]byte(originalJSONToken), &cookieData)
 		if err != nil {
 			log.Printf("error marshalling cookie data - %v", err)
 			authErrHandler(w, r, "unable to decode coodie data. Please sign back in.")
@@ -860,4 +884,13 @@ func (d *DataSourceName) String() string {
 	}
 
 	return fmt.Sprintf("%s%s%s/%s?parseTime=true", d.User, pw, hostAndPort, d.DBName)
+}
+
+// Reconstitutes padding removed from a base64 string
+func padBase64(s string) string {
+	l := len(s)
+	m := l % 4
+	padding := (4 - m) % 4 // use the modulo so that if m == 0, then padding is 0, not 4
+
+	return s + strings.Repeat("=", padding)
 }

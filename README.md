@@ -42,6 +42,9 @@ $ go run server.go -h
 
     # crowdrise proxy endpoints. proxies the request adding the api key and secret
     /crowdrise/{crowdrise api endpoint}
+
+    # assets file server - all files will be publically available here
+    /assets
 ```
 
 ## Program Flow
@@ -54,20 +57,27 @@ Meanwhile, a background job periodically queries for updates to user activities 
 The `auth_cookie` is stored locally on the end-user's side and is signed via HMAC. If the data is tampered, then the HMAC signature is invalidated and the auth_cookie will no longer validate. The user must sign back in.
 
 ## Javascript access to data
-Read in the `auth_cookie`, base64 decode it, split on `::hmac::`. The first part will be the json string representing the currently logged in user. The `access_token` can be used in any endpoint for this service needing an authentication bearer token. Additionally, the `athlete.id` is the id to refer to when making calls on behalf of the user to this service.
+Read in the `auth_cookie`, base64 decode it, split on `::hmac::`. The first part will be the json string representing the currently logged in user.
+```
+var tokenData = JSON.parse(atob($.cookie("auth_cookie")).split("::hmac::")[0]);
+```
+`tokenData.access_token` can be used in any endpoint for this service needing an authentication bearer token. Additionally, the `tokenData.athlete.id` is the id to refer to when making calls on behalf of the user to this service. The `tokenData.athlete.email` should be guaranteed to match the email that comes back in the summary endpoint and can be used to get user data from CrowdRise.
 
 ## Database
 ```
 CREATE TABLE `users` (
   `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
-  `strava_id` int(11) unsigned NOT NULL,
   `email` varchar(255) NOT NULL,
   `oauth_token` varchar(255) NOT NULL,
+  `strava_id` int(11) unsigned NOT NULL,
+  `crowdrise_username` varchar(255) DEFAULT NULL,
   `last_activity_update` datetime DEFAULT NULL,
   `updated_at` datetime DEFAULT NULL,
   `created_at` datetime DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `strava_id_2` (`strava_id`),
+  UNIQUE KEY `email` (`email`),
+  UNIQUE KEY `crowdrise_username` (`crowdrise_username`),
   KEY `strava_id` (`strava_id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8;
 
