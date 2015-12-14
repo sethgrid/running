@@ -15,6 +15,7 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
+	"net/http/httputil"
 	"net/url"
 	"strconv"
 	"strings"
@@ -579,67 +580,63 @@ func crowdRiseReverseProxyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// ************************************************************
-	// we can assume this request should be forwarded using our key
-	body, err := ioutil.ReadAll(r.Body)
-	if err != nil {
-		log.Printf("error reading request body for proxy request - %v", err)
-		errJSONHandler(w, r, http.StatusBadRequest, "unable to read request body")
+	switch fwdStr {
+	case "api/check_if_user_exists":
+	case "api/heartbeat":
+	case "api/signup":
+	case "api/url_data":
+	default:
+		log.Println("non-whitelist url attempted: %s", fwdStr)
+		errJSONHandler(w, r, http.StatusBadRequest, "proxy request not allowed")
 		return
 	}
 
-	log.Printf("forwarding request to %s/%s", CROWDRISE_BASE_URL, fwdStr)
-
-	newRequest, err := http.NewRequest(r.Method, fmt.Sprintf("%s/%s", CROWDRISE_BASE_URL, fwdStr), bytes.NewReader(body))
-	if err != nil {
-		log.Printf("error preparing request for proxy - %v", err)
-		errJSONHandler(w, r, http.StatusInternalServerError, "error preparing proxy request")
-		return
-	}
-
-	// TODO: if the url contains "get_" it should also contain _this_ user's username
-	// this will help prevent spoofing requests for other users
-
-	// *********
-	// Grab the previous query params and add to them, then attach to the new request
-
-	values := r.URL.Query()
-	for k, v := range r.URL.Query() {
-		for _, element := range v {
-			if strings.ToLower(k) == "email" {
-				// prevent requests to crowdrise for OTHER user's emails
-				log.Println("warning - user with email `%s` tried to request for `%s`", email, element)
-				values.Add(k, email)
-			}
-			values.Add(k, element)
+	var directorErr error
+	director := func(req *http.Request) {
+		// handle both cases where we got `http://hostname` or `hostname`
+		parts := strings.Split(CROWDRISE_BASE_URL, "://")
+		var scheme string
+		var host string
+		if len(parts) == 1 { // there was no scheme in the config
+			scheme = "http"
+			host = parts[0]
+		} else if len(parts) >= 2 { // there was a scheme in the config
+			scheme = parts[0]
+			host = parts[1]
+		} else {
+			log.Printf("issue splitting host on :// - %s", CROWDRISE_BASE_URL)
+			directorErr = errors.New("internal error reading config")
+			return
 		}
+		log.Printf("host %s, scheme %s", host, scheme)
+		req = r
+		req.Host = host
+		req.URL.Scheme = scheme
+		req.URL.Host = host
+		req.URL.Path = strings.Replace(req.URL.Path, "/crowdrise/", "/", 1)
+
+		// uncomment to see sample curl request for debugging
+		// must be commented out to work as it drains the request
+		// log.Println(gencurl.FromRequest(req))
 	}
-	values.Set("api_key", CROWDRISE_API_KEY)
-	values.Set("api_secret", CROWDRISE_API_SECRET)
 
-	newRequest.URL.RawQuery = values.Encode()
-
-	// uncomment to see repro curl
-	//log.Printf("DEBUG: repro $ %s", gencurl.FromRequest(newRequest))
-
-	client := &http.Client{}
-	resp, err := client.Do(newRequest)
+	b, err := ioutil.ReadAll(r.Body)
 	if err != nil {
-		log.Printf("error forwarding request to crowdrise = %v", err)
-		errJSONHandler(w, r, http.StatusInternalServerError, "error proxying request to crowdrise")
+		log.Printf("issue reading proxy body - %v", err)
+		directorErr = errors.New("internal error reading proxy body")
 		return
 	}
-	defer resp.Body.Close()
-	respBody, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		log.Printf("error reading response body from proxy request - %v", err)
-		errJSONHandler(w, r, http.StatusInternalServerError, "unable to read response from crowdrise")
+	b = append(b, []byte(fmt.Sprintf("&api_key=%s&api_secret=%s", CROWDRISE_API_KEY, CROWDRISE_API_SECRET))...)
+	log.Printf("changing body to %s", b)
+	r.Body = ioutil.NopCloser(bytes.NewBuffer(b))
+	r.ContentLength = int64(len(b))
+
+	proxy := &httputil.ReverseProxy{Director: director}
+	proxy.ServeHTTP(w, r)
+	if directorErr != nil {
+		errJSONHandler(w, r, http.StatusInternalServerError, directorErr.Error())
 		return
 	}
-
-	// TODO: inspect if this was the sign up request and grab the username
-	w.WriteHeader(resp.StatusCode)
-	w.Write(respBody)
 	log.Printf("crowdrise proxy request complete")
 }
 

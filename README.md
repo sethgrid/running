@@ -43,6 +43,11 @@ $ go run server.go -h
     /user/{strava_id}/summary -H 'Authorization: Bearer 100000000a'
 
     # crowdrise proxy endpoints. proxies the request adding the api key and secret
+    # valid endpoints:
+    # "api/check_if_user_exists":
+    # "api/heartbeat":
+    # "api/signup":
+    # "api/url_data":
     /crowdrise/{crowdrise api endpoint}
 
     # assets file server - all files will be publically available here
