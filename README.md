@@ -15,6 +15,8 @@ $ . production.env
 $ go run server.go
 ```
 
+You may need to `go get -u` to ensure you have the required dependencies.
+
 Flags:
 To see a listing of all flags that can be used, use `-h`.
 ```bash
@@ -37,7 +39,7 @@ $ go run server.go -h
     # provides data on days ran, to be used in /app
     # optional parameter: -d '{"start_date":"2015-11-25"}'
     # otherwise defaults to the config EARLIEST_POLL_UNIX
-    # returns {"result":{date_1: true, date_2: false, ...}, "days_ran": 5}
+    # returns {"result":{date_1: true, date_2: false, ...}, "days_ran": 5, user_id: 1, email: "mail@example.com", strava_id: 1234, crowdrise_username: "foobarran"}
     /user/{strava_id}/summary -H 'Authorization: Bearer 100000000a'
 
     # crowdrise proxy endpoints. proxies the request adding the api key and secret
@@ -95,6 +97,4 @@ CREATE TABLE `activities` (
 ```
 
 ## TODO:
- - Create endpoint for getting days run via local db based on strava data
- - Figure out charity API
  - Log to the database relevant metrics (page requests?, user login count?)
