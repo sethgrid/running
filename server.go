@@ -619,7 +619,8 @@ func crowdRiseReverseProxyHandler(w http.ResponseWriter, r *http.Request) {
 
 	newRequest.URL.RawQuery = values.Encode()
 
-	log.Printf("DEBUG: repro $ %s", gencurl.FromRequest(newRequest))
+	// uncomment to see repro curl
+	//log.Printf("DEBUG: repro $ %s", gencurl.FromRequest(newRequest))
 
 	client := &http.Client{}
 	resp, err := client.Do(newRequest)
