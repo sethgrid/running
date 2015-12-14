@@ -192,7 +192,7 @@ func main() {
 
 	// authenticated JSON endpoints via bearer token
 	r.Handle("/user/{id:[0-9]+}/summary", mwLogRequest(http.HandlerFunc(userSummaryHandler)))
-	r.Handle(`/crowdrise/{rest:[a-zA-Z0-9=\-\/]+}`, mwLogRequest(http.HandlerFunc(crowdRiseReverseProxyHandler)))
+	r.Handle(`/crowdrise/{rest:[a-zA-Z0-9=\-\_/]+}`, mwLogRequest(http.HandlerFunc(crowdRiseReverseProxyHandler)))
 
 	if err := http.ListenAndServe(fmt.Sprintf(":%d", port), r); err != nil {
 		log.Println("unexpected error serving application - %v", err)
@@ -587,6 +587,8 @@ func crowdRiseReverseProxyHandler(w http.ResponseWriter, r *http.Request) {
 		errJSONHandler(w, r, http.StatusBadRequest, "unable to read request body")
 		return
 	}
+
+	log.Printf("forwarding request to %s/%s", CROWDRISE_BASE_URL, fwdStr)
 
 	newRequest, err := http.NewRequest(r.Method, fmt.Sprintf("%s/%s", CROWDRISE_BASE_URL, fwdStr), bytes.NewReader(body))
 	if err != nil {
