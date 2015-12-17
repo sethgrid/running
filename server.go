@@ -433,8 +433,8 @@ func getSummary(stravaID int, oAuthToken string, start time.Time) (Summary, erro
 
 	// verify that this user exists in our records
 	var internalID int
-	var email, firstname, lastname string
-	var crowdriseUsername string
+	var email string 
+	var firstname, lastname, crowdriseUsername sql.NullString
 	checkQuery := "select id, email, crowdrise_username, firstname, lastname from users where users.strava_id=? and users.oauth_token=?"
 	err := DB.QueryRow(checkQuery, stravaID, oAuthToken).Scan(&internalID, &email, &crowdriseUsername, &firstname, &lastname)
 	if err != nil && err == sql.ErrNoRows {
@@ -480,8 +480,8 @@ func getSummary(stravaID int, oAuthToken string, start time.Time) (Summary, erro
 	summary.Email = email
 	summary.StravaID = stravaID
 	summary.CrowdRiseUsername = crowdriseUsername.String
-	summary.Firstname = firstname
-	summary.Lastname = lastname
+	summary.Firstname = firstname.String
+	summary.Lastname = lastname.String
 
 	return summary, nil
 }
