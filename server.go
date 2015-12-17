@@ -733,7 +733,7 @@ func crowdRiseSignupHandler(w http.ResponseWriter, r *http.Request) {
 		Result []struct {
 			UserCreated       bool   `json:"user_created"`
 			Username          string `json:"username"`
-			UserID            int    `json:"user_id"`
+			UserID            string `json:"user_id"`
 			CompleteSignupURL string `json:"complete_signup_url"`
 			ErrorID           string `json:"error_id"`
 			Error             string `json:"error"`
