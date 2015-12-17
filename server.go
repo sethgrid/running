@@ -107,6 +107,7 @@ type Athlete struct {
 type Activity struct {
 	ID        int     `json:"ID"`
 	Distance  float32 `json:"distance"`
+	TotalElevationGain float32 `json:"total_elevation_gain"`
 	Type      string  `json:"type"`
 	StartDate string  `json:"start_date"` // 2013-08-24T00:04:12Z
 }
@@ -187,6 +188,7 @@ func main() {
 	// unauthenticated HTML endpoints
 	r.Handle("/", mwLogRequest(http.HandlerFunc(homeHandler)))
 	r.Handle("/token_exchange", mwLogRequest(http.HandlerFunc(tokenHandler)))
+	r.Handle("/register", mwLogRequest(http.HandlerFunc(registerHandler)))
 
 	// authenticated HTML endpoints
 	r.Handle("/app", mwLogRequest(mwAuthenticated(http.HandlerFunc(appHandler))))
@@ -223,7 +225,7 @@ func activityUpdator(limitToUserID int) {
 		if err := rows.Scan(&userID, &stravaID, &oAuthToken, &updatedAt); err != nil {
 			log.Printf("error scanning for oauth token - %v", err)
 		}
-		activities := listAthleteActivities(oAuthToken, updatedAt.Unix())
+		activities := listAthleteActivities(oAuthToken, EARLIEST_POLL_UNIX)
 		for _, activity := range activities {
 			if activity.Type != "Run" {
 				continue
@@ -235,7 +237,7 @@ func activityUpdator(limitToUserID int) {
 			}
 			startDate := startTime.Format(MysqlDateFormat)
 			now := time.Now().Format(MysqlDateFormat)
-			_, err = DB.Exec(`insert into activities (user_id, strava_id, distance, start_date, created_at) values (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE strava_id=strava_id`, userID, activity.ID, activity.Distance, startDate, now)
+			_, err = DB.Exec(`insert into activities (user_id, strava_id, distance, elevation, start_date, created_at) values (?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE user_id = user_id, strava_id=strava_id, distance=distance, elevation=elevation, start_date=start_date`, userID, activity.ID, activity.Distance, activity.TotalElevationGain, startDate, now)
 			if err != nil {
 				log.Printf("error inserting into activities - %v", err)
 				continue
@@ -257,43 +259,59 @@ func activityUpdator(limitToUserID int) {
 // listAthleteActivities grabs activities from Strava
 func listAthleteActivities(oAuthToken string, startUnix int64) []Activity {
 	var activities []Activity
+	var allActivities []Activity
+	var newStartUnix int64
 
 	cli := &http.Client{}
-	requestQuery := fmt.Sprintf("?after=%d", EARLIEST_POLL_UNIX)
+	requestQuery := fmt.Sprintf("?per_page=200&after=%d", EARLIEST_POLL_UNIX)
 	if startUnix > 0 {
-		requestQuery = fmt.Sprintf("?after=%d", startUnix)
+		requestQuery = fmt.Sprintf("?per_page=200&after=%d", startUnix)
 	}
-	req, err := http.NewRequest("GET", "https://www.strava.com/api/v3/athlete/activities"+requestQuery, strings.NewReader(""))
-	if err != nil {
-		log.Printf("error setting up new request to activities - %v", err)
-		return activities
-	}
-	defer req.Body.Close()
+	results := 1
+	for results > 0 {
+		req, err := http.NewRequest("GET", "https://www.strava.com/api/v3/athlete/activities"+requestQuery, strings.NewReader(""))
+		if err != nil {
+			log.Printf("error setting up new request to activities - %v", err)
+			return activities
+		}
+		defer req.Body.Close()
 
-	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", oAuthToken))
-	resp, err := cli.Do(req)
-	if err != nil {
-		log.Printf("error getting response for activities - %v", err)
-		return activities
-	}
-	defer resp.Body.Close()
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		log.Printf("error reading response body for activities - %v", err)
-		return activities
-	}
-	if resp.StatusCode > 300 {
-		log.Printf("unexected response getting activities - %s %s", gencurl.FromRequest(req), string(body))
-		return activities
+		req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", oAuthToken))
+		resp, err := cli.Do(req)
+		if err != nil {
+			log.Printf("error getting response for activities - %v", err)
+			return activities
+		}
+		defer resp.Body.Close()
+		body, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			log.Printf("error reading response body for activities - %v", err)
+			return activities
+		}
+		if resp.StatusCode > 300 {
+			log.Printf("unexected response getting activities - %s %s", gencurl.FromRequest(req), string(body))
+			return activities
+		}
+
+		err = json.Unmarshal(body, &activities)
+		if err != nil {
+			log.Printf("error marshalling activities  %s - %v", string(body), err)
+			return activities
+		}
+		results = len(activities)
+		if results > 0 {
+			allActivities = append(allActivities,activities...)
+			newStartDate, err := time.Parse("2006-01-02T15:04:05Z",activities[len(activities)-1].StartDate)
+			if err != nil {
+					log.Printf("error parsing time from activities - %v", err)
+					continue
+				}
+			newStartUnix = newStartDate.Unix()
+			requestQuery = fmt.Sprintf("?per_page=200&after=%d", newStartUnix)
+		}
 	}
 
-	err = json.Unmarshal(body, &activities)
-	if err != nil {
-		log.Printf("error marshalling activities  %s - %v", string(body), err)
-		return activities
-	}
-
-	return activities
+	return allActivities
 }
 
 // checkAndSetUser will insert a user if they do not exist, update them if their email or oAuthToken has changed, or do nothing.
@@ -464,28 +482,134 @@ func getSummary(stravaID int, oAuthToken string, start time.Time) (Summary, erro
 	return summary, nil
 }
 
+// EventTotal provides a running total of all statistics for the entire event
+type EventTotal struct {
+	Participants	  int 			  `json:"participants"`
+	MetersRun		  float32 		  `json:"metersrun"`
+	MilesRun          float32         `json:"milesrun"`
+	MetersGained	  float32 		  `json:"metersgained"`
+}
+
+// getEventTotal returns running totals since a given start date for the entire event
+func getEventTotal(start time.Time) (EventTotal, error) {
+	var eventTotal EventTotal
+	activitiesQuery := "select count(distinct users.ID) as participants, sum(ifnull(Distance,0.0)) as metersrun, sum(ifnull(Elevation,0.0)) as metersgained from users left join activities on users.id = activities.user_id where start_date > ?"
+	var participants int
+	var metersrun float32
+	var metersgained float32
+	err := DB.QueryRow(activitiesQuery, start.Format(MysqlDateFormat)).Scan(&participants, &metersrun, &metersgained)
+	if err != nil {
+		log.Printf("error getting event totals from database - %v", err)
+		return eventTotal, errors.New(ErrDB)
+	}
+
+	eventTotal.Participants = participants
+	eventTotal.MetersRun = metersrun
+	eventTotal.MilesRun = metersrun/1609.34
+	eventTotal.MetersGained = metersgained
+
+	return eventTotal, nil 
+}
+
+// LeaderboardEntry provides a total of meters gained, miles run, and days run by user
+type LeaderboardEntry struct {
+	StravaId int `json:"stravaid"`
+	MilesRun float32 `json:"milesrun"`
+	MetersGained float32 `json:"metersgained"`
+	DaysRun int `json:"daysrun"`
+}
+
+func getLeaderboardData(start time.Time) ([]LeaderboardEntry, error) {
+	var leaderboardData []LeaderboardEntry
+	leaderboardQuery := "select users.strava_id, count(distinct activities.start_date) as daysrun, sum(ifnull(Distance,0.0)) as metersrun, sum(ifnull(Elevation,0.0)) as metersgained FROM users inner join activities on users.id = activities.user_id where start_date > ? group by users.strava_id"
+	var strava_id int
+	var metersrun float32
+	var metersgained float32
+	var daysrun int
+	rows, err := DB.Query(leaderboardQuery, start.Format(MysqlDateFormat))
+	if err != nil {
+		log.Printf("error getting leaderboard data from database - %v", err)
+		return leaderboardData, errors.New(ErrDB)
+	}
+	for rows.Next() {
+		if err := rows.Scan(&strava_id, &daysrun, &metersrun, & metersgained); err != nil {
+			log.Printf("error scanning for leaderboard data - %v", err)
+			continue
+		}
+		var e LeaderboardEntry
+		e.StravaId = strava_id
+		e.MilesRun = metersrun/1609.34
+		e.MetersGained = metersgained
+		e.DaysRun = daysrun
+		leaderboardData = append(leaderboardData, e)
+	}
+	return leaderboardData, nil	
+}
+
 // homeHandler presents the index.html template
 func homeHandler(w http.ResponseWriter, r *http.Request) {
-	file, err := ioutil.ReadFile("index.html")
-	if err != nil {
-		log.Println("index.html not found")
-		http.NotFoundHandler()
-		return
-	}
-	t, err := template.New("index").Parse(string(file))
+	templates := []string{"base.html","index.html"}
+	t, err := template.ParseFiles(templates...)
 	if err != nil {
 		log.Println("unable to parse index.html for rendering - %v", err)
 		errHandler(w, r, http.StatusInternalServerError, "internal error parsing templates")
 	}
+	tm := time.Date(2015, time.January, 1, 0, 0, 0, 0, time.UTC)
+	totals, err := getEventTotal(tm.Local())
+	leaderboardData, err := getLeaderboardData(tm.Local())
 	data := struct {
 		StravaClientID string
+		Participants int
+		MetersRun float32
+		MilesRun int
+		ThousandFeetGained int
+		MetersGained float32
+		LeaderboardData []LeaderboardEntry
 	}{
 		StravaClientID: STRAVA_CLIENT_ID,
+		Participants: totals.Participants,
+		MetersRun: totals.MetersRun,
+		MilesRun: int(totals.MetersRun/1609.34),
+		ThousandFeetGained: int(totals.MetersGained*3.28084/1000),
+		MetersGained: totals.MetersGained,
+		LeaderboardData: leaderboardData,
 	}
 
 	err = t.Execute(w, data)
 	if err != nil {
 		log.Printf("error executing template in homeHandler - %v", err)
+		errHandler(w, r, http.StatusInternalServerError, "internal error executing templates")
+	}
+}
+
+// registerHandler presents the register.html template
+func registerHandler(w http.ResponseWriter, r *http.Request) {
+	templates := []string{"base.html","register.html"}
+	
+	//Check to see whether the user is cookied
+	cookieData, err := readAuthCookie(r)
+	if err != nil {
+		log.Println("user not cookied, showing full registration page")
+		templates = append(templates,"register-all.html")
+	} else {
+		log.Println("user cookied, showing step 2 page only")
+		templates = append(templates,"register-step-2-only.html")
+	}
+	_ = cookieData
+
+	data := struct {
+		StravaClientID string
+	}{
+		StravaClientID: STRAVA_CLIENT_ID,
+	}
+	t, err := template.ParseFiles(templates...)
+	if err != nil {
+		log.Println("unable to parse register.html for rendering - %v", err)
+		errHandler(w, r, http.StatusInternalServerError, "internal error parsing templates")
+	}
+	err = t.Execute(w, data)
+	if err != nil {
+		log.Printf("error executing template in registerHandler - %v", err)
 		errHandler(w, r, http.StatusInternalServerError, "internal error executing templates")
 	}
 }
@@ -506,7 +630,6 @@ func tokenHandler(w http.ResponseWriter, r *http.Request) {
 		errHandler(w, r, http.StatusBadRequest, "missing state parameter got "+state)
 		return
 	}
-	_ = state // state is, as of yet, unused
 
 	code := r.URL.Query().Get("code")
 	if code == "" {
@@ -542,11 +665,109 @@ func tokenHandler(w http.ResponseWriter, r *http.Request) {
 	cookie.Expires = time.Now().Add(COOKIE_EXPIRY)
 
 	http.SetCookie(w, &cookie)
+	//Handle redirection based on state
+	if state == "newreg" {
+		log.Printf("forwarding request to /register for part 2")
+		w.Header().Set("Location", "/register")
+		w.WriteHeader(301)
+		w.Write([]byte("Redirecting to /register..."))
+	} else {
+		log.Printf("forwarding request to /app")
+		w.Header().Set("Location", "/app")
+		w.WriteHeader(301)
+		w.Write([]byte("Redirecting to /app..."))
+	}
+}
 
-	log.Println("forwarding request to /app")
-	w.Header().Set("Location", "/app")
-	w.WriteHeader(301)
-	w.Write([]byte("Redirecting to /app..."))
+// crowdRiseSignupHandler is invoked in the reverse proxy and captures important details
+// that our system wants about the signup if succuessful
+func crowdRiseSignupHandler(w http.ResponseWriter, r *http.Request) {
+	b, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		log.Printf("issue reading signup body - %v", err)
+		errJSONHandler(w, r, http.StatusInternalServerError, "internal error reading the signup body")
+		return
+	}
+	b = append(b, []byte(fmt.Sprintf("&api_key=%s&api_secret=%s", CROWDRISE_API_KEY, CROWDRISE_API_SECRET))...)
+	log.Printf("changing body to %s", b)
+	r.Body = ioutil.NopCloser(bytes.NewBuffer(b))
+	r.ContentLength = int64(len(b))
+
+	// get important parts. Working with strings because it is easier and the performance hit is no biggy here
+	parts := strings.Split(string(b), "&")
+	var firstname string // collected in the request
+	var lastname string  // collected in the request
+	for _, part := range parts {
+		keyValue := strings.Split(part, "=")
+		if keyValue[0] == "first_name" {
+			firstname = keyValue[1]
+		}
+		if keyValue[0] == "last_name" {
+			lastname = keyValue[1]
+		}
+	}
+
+	resp, err := http.Post(CROWDRISE_BASE_URL+"/api/signup", "application/x-www-form-urlencoded", bytes.NewBuffer(b))
+	if err != nil {
+		log.Printf("error signing up user - %q", err.Error())
+		errJSONHandler(w, r, http.StatusInternalServerError, "error signing up with crowdrise")
+		return
+	}
+	defer resp.Body.Close()
+
+	data, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		log.Printf("error reading response body from signup request - %q", err.Error())
+		errJSONHandler(w, r, http.StatusInternalServerError, "error reading response from crowdrise")
+		return
+	}
+
+	if resp.StatusCode > 300 {
+		log.Printf("unexpected response from crowdrise signup: %s", data)
+		errJSONHandler(w, r, http.StatusInternalServerError, "unexpected result from crowdrise")
+		return
+	}
+
+	var signupResponse struct {
+		Status string `json:"status"`
+		Result []struct {
+			UserCreated       bool   `json:"user_created"`
+			Username          string `json:"username"`
+			UserID            int    `json:"user_id"`
+			CompleteSignupURL string `json:"complete_signup_url"`
+			ErrorID           string `json:"error_id"`
+			Error             string `json:"error"`
+		} `json:"result"`
+	}
+	err = json.Unmarshal(data, &signupResponse)
+	if err != nil {
+		log.Printf("error unmarshalling signup response for %q: %q", string(data), err.Error())
+		errJSONHandler(w, r, http.StatusInternalServerError, "unable to parse result from crowdrise signup")
+		return
+	}
+
+	if !signupResponse.Result[0].UserCreated {
+		log.Printf("error - user not created - %s", string(data))
+		errJSONHandler(w, r, http.StatusInternalServerError, fmt.Sprintf("crowdrise did not create the user - %s", signupResponse.Result[0].Error))
+		return
+	}
+
+	authParts := strings.Split(r.Header.Get("Authorization"), " ")
+	if len(authParts) != 2 {
+		errJSONHandler(w, r, http.StatusBadRequest, "unable to get authorization header bearer token")
+		return
+	}
+	passedInToken := authParts[1]
+
+	_, err = DB.Exec("update users set crowdrise_username=?, firstname=?, lastname=? where oauth_token=? limit 1", signupResponse.Result[0].Username, firstname, lastname, passedInToken)
+	if err != nil {
+		log.Printf("error updating user record with crowdrise information - %q", err.Error())
+		errJSONHandler(w, r, http.StatusInternalServerError, "internal storage error saving crowdrise information")
+		return
+	}
+
+	// pass the data back to the front end
+	w.Write(data)
 }
 
 // crowdRiseReverseProxyHandler is a reverse proxy that appends the api user and token to a request and forwards it.
@@ -584,6 +805,8 @@ func crowdRiseReverseProxyHandler(w http.ResponseWriter, r *http.Request) {
 	case "api/check_if_user_exists":
 	case "api/heartbeat":
 	case "api/signup":
+		crowdRiseSignupHandler(w, r)
+		return
 	case "api/url_data":
 	default:
 		log.Println("non-whitelist url attempted: %s", fwdStr)
@@ -684,13 +907,8 @@ func StravaOAuthTokenEndpoint(code string) (StravaOAuthTokenResponse, []byte, er
 
 // appHandler presents the app.html template and should be behind the mwAuthenticated middleware
 func appHandler(w http.ResponseWriter, r *http.Request) {
-	file, err := ioutil.ReadFile("app.html")
-	if err != nil {
-		log.Println("app.html not found")
-		http.NotFoundHandler()
-		return
-	}
-	t, err := template.New("app").Parse(string(file))
+	templates := []string{"base.html","app.html"}
+	t, err := template.ParseFiles(templates...)
 	if err != nil {
 		log.Println("unable to parse app.html for rendering - %v", err)
 		errHandler(w, r, http.StatusInternalServerError, "internal error parsing app template")

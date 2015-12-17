@@ -4,15 +4,125 @@ This file is read in as a template and will not work properly until parsed.
 
 Variables:
  - {{.StravaClientID}}
---><html>
-<head>
-<title>300 Days of Run</title>
-</head>
+ - {{.Participants}}
+ - {{.MetersRun}}
+ - {{.MilesRun}}
+ - {{.MetersGained}}
+ - {{.LeaderboardData}}
+-->
+{{ define "content" }}
 
-<body>
-    <div id="main_container">
-    <a href="https://www.strava.com/oauth/authorize?client_id={{.StravaClientID}}&response_type=code&redirect_uri=http://localhost:9000/token_exchange&scope=write&state=mystate&approval_prompt=force">
-        <img src="https://strava.github.io/api/images/LogInWithStrava.png">
-    </a>
+<!-- first section  -->
+<div id="home" class="home">
+  <div class="text-vcenter">
+    <h1>300 Days of Run</h1>
+    <h3>Raising money for charity, one run at a time</h3>
+    <div class="col-sm-4 col-sm-offset-4 col-md-2 col-md-offset-5">
+    	<a href="/register" class="btn btn-default btn-lg btn-home-main">Sign Up</a>
+    	<a href="https://www.strava.com/oauth/authorize?client_id={{.StravaClientID}}&response_type=code&redirect_uri=http://45.55.179.30:9000/token_exchange&scope=write&state=mystate&approval_prompt=force" class="btn btn-default btn-lg btn-home-main">Log In</a>
+    	<a href="#about" class="btn btn-default btn-lg btn-home-main">Learn More</a>
     </div>
-</body>
+  </div>
+</div>
+<!-- /first section -->
+
+<!-- second section - About -->
+<div id="about" class="pad-section">
+  <div class="container">
+    <div class="row">
+      <div class="col-sm-6 col-sm-offset-3 text-center">
+        <h2>About</h2>
+        <p>
+        	This is placeholder text for the about section. We'll briefly describe the challenge. This is placeholder text for the about section. We'll briefly describe the challenge. This is placeholder text for the about section. We'll briefly describe the challenge. This is placeholder text for the about section. We'll briefly describe the challenge. This is placeholder text for the about section. We'll briefly describe the challenge. 
+        </p>
+        <a href="/register" class="btn btn-primary">Sign Up for 300 Days of Run</a>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- /second section -->
+
+<!-- third section -->
+<div id="services" class="pad-section">
+  <div class="container">
+    <h2 class="text-center">Totals to Date</h2> <hr />
+    <div class="row text-center">
+      <div class="col-sm-3 col-xs-6">
+        <h1> {{.Participants}}</h1>
+        <p>Participants</p>
+      </div>
+      <div class="col-sm-3 col-xs-6">
+        <h1>{{.MilesRun}}</h1>
+        <p>Miles Run</p>
+      </div>
+      <div class="col-sm-3 col-xs-6">
+        <h1>{{.ThousandFeetGained}}</h1>
+        <p>Thousand Feet Gained</p>
+      </div>
+      <div class="col-sm-3 col-xs-6">
+        <h1>$0</h1>
+        <p>Money Raised</p>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- /third section -->
+
+<!-- fourth section - leaderboard -->
+<div id="information" class="pad-section">
+  <div class="container">
+    <div class="row">
+      <div class="col-sm-8 col-sm-offset-2">
+        <table id="leaderboard" style="width:100%">
+          <thead>
+            <th>Strava ID</th>
+            <th>Miles Run</th>
+            <th>Meters Gained</th>
+            <th>Days Run</th>
+          </thead>
+          <tbody>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- /fourth section -->
+
+<!-- fifth section -->
+<div id="services" class="pad-section">
+  <div class="container">
+    <div class="row">
+      <div class="col-sm-12 text-center">
+
+      </div>
+    </div>
+  </div>
+</div>
+<!-- /fifth section -->
+
+<!-- footer -->
+<footer>
+  <hr />
+  <div class="container">
+    <p class="text-right">Copyright &copy; 300 Days of Run 2015</p>
+  </div>
+</footer>
+<!-- /footer -->
+<script>
+$(document).ready(function(){
+    $('#leaderboard').DataTable({
+      data: {{.LeaderboardData}},
+      columns: [
+        { data: 'stravaid' },
+        { data: 'milesrun' },
+        { data: 'metersgained' },
+        { data: 'daysrun' }
+    ]
+    });
+    $('#leaderboard')
+      .removeClass( 'display' )
+      .addClass('table table-striped table-bordered');
+});
+</script>
+{{ end }}

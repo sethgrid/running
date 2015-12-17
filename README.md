@@ -46,7 +46,7 @@ $ go run server.go -h
     # valid endpoints:
     # "api/check_if_user_exists":
     # "api/heartbeat":
-    # "api/signup":
+    # "api/signup": (this will get highjacked and the response and request used to save data to the db)
     # "api/url_data":
     /crowdrise/{crowdrise api endpoint}
 
@@ -79,6 +79,8 @@ CREATE TABLE `users` (
   `strava_id` int(11) unsigned NOT NULL,
   `crowdrise_username` varchar(255) DEFAULT NULL,
   `last_activity_update` datetime DEFAULT NULL,
+  `firstname` varchar(255) DEFAULT NULL,
+  `lastname` varchar(255) DEFAULT NULL,
   `updated_at` datetime DEFAULT NULL,
   `created_at` datetime DEFAULT NULL,
   PRIMARY KEY (`id`),
@@ -93,6 +95,7 @@ CREATE TABLE `activities` (
   `user_id` int(11) unsigned NOT NULL,
   `strava_id` int(11) NOT NULL,
   `distance` float DEFAULT '0',
+  `elevation` float DEFAULT '0',
   `start_date` datetime DEFAULT NULL,
   `created_at` datetime DEFAULT NULL,
   PRIMARY KEY (`id`),

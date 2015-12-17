@@ -5,16 +5,12 @@ This page will only display after the user has been authenticated
 
 Variables:
  - {{.Email}}
---><html>
-<head>
-<title>300 Days of Run - logged in</title>
-<script src="http://code.jquery.com/jquery-1.11.0.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery-cookie/1.4.1/jquery.cookie.js"></script>
-</head>
-
-<body>
-    <div id="main_container">
-        <p>Welcome {{.Email}}. This page is needing a designer.</p>
-    </div>
-    <script src="assets/example_access.js"></script>
-</body>
+-->
+{{ define "content" }}
+<div class="container-fluid">
+	<div class="row">
+	  <p>Welcome {{.Email}}, you're logged in via Strava. Filling out this page is on the to do list.</p>
+	  <script src="assets/example_access.js"></script>
+	</div>
+</div>
+{{ end }}
