@@ -763,7 +763,7 @@ func crowdRiseSignupHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	passedInToken := authParts[1]
 
-	_, err = DB.Exec("update users set crowdrise_username=?, firstname=?, lastname=? where oauth_token=? limit 1", signupResponse.Result[0].Username, firstname, lastname, passedInToken)
+	_, err = DB.Exec("update users set crowdrise_username=?, crowdrise_id=?, firstname=?, lastname=? where oauth_token=? limit 1", signupResponse.Result[0].Username, signupResponse.Result[0].UserID, firstname, lastname, passedInToken)
 	if err != nil {
 		log.Printf("error updating user record with crowdrise information - %q", err.Error())
 		errJSONHandler(w, r, http.StatusInternalServerError, "internal storage error saving crowdrise information")

@@ -77,6 +77,7 @@ CREATE TABLE `users` (
   `email` varchar(255) NOT NULL,
   `oauth_token` varchar(255) NOT NULL,
   `strava_id` int(11) unsigned NOT NULL,
+  `crowdrise_id` int(11) unsigned DEFAULT NULL,
   `crowdrise_username` varchar(255) DEFAULT NULL,
   `last_activity_update` datetime DEFAULT NULL,
   `firstname` varchar(255) DEFAULT NULL,
