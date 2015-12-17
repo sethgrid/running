@@ -39,7 +39,7 @@ $ go run server.go -h
     # provides data on days ran, to be used in /app
     # optional parameter: -d '{"start_date":"2015-11-25"}'
     # otherwise defaults to the config EARLIEST_POLL_UNIX
-    # returns {"result":{date_1: true, date_2: false, ...}, "days_ran": 5, user_id: 1, email: "mail@example.com", strava_id: 1234, crowdrise_username: "foobarran"}
+    # returns {"result":{"date_1": true, "date_2": false, ...}, "days_ran": 5, "user_id": 1, "email": "mail@example.com", "strava_id": 1234, "crowdrise_username": "foobarran", "firstname": "Firstname", "lastname": "Lastname"}
     /user/{strava_id}/summary -H 'Authorization: Bearer 100000000a'
 
     # crowdrise proxy endpoints. proxies the request adding the api key and secret
@@ -88,7 +88,7 @@ CREATE TABLE `users` (
   UNIQUE KEY `email` (`email`),
   UNIQUE KEY `crowdrise_username` (`crowdrise_username`),
   KEY `strava_id` (`strava_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8;
+) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8;
 
 CREATE TABLE `activities` (
   `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
@@ -101,7 +101,7 @@ CREATE TABLE `activities` (
   PRIMARY KEY (`id`),
   KEY `strava_id` (`strava_id`),
   UNIQUE (`strava_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8;
+) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8;
 ```
 
 ## TODO:

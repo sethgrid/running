@@ -422,6 +422,8 @@ type Summary struct {
 	Email             string          `json:"email"`
 	StravaID          int             `json:"strava_id"`
 	CrowdRiseUsername string          `json"crowdrise_username"`
+	Firstname         string          `json:"firstname"`
+	Lastname          string          `json:"lastname"`
 }
 
 // getSummary finds all matching activities in the db for a given strava id and token.
@@ -431,10 +433,10 @@ func getSummary(stravaID int, oAuthToken string, start time.Time) (Summary, erro
 
 	// verify that this user exists in our records
 	var internalID int
-	var email string
+	var email, firstname, lastname string
 	var crowdriseUsername sql.NullString
-	checkQuery := "select id, email, crowdrise_username from users where users.strava_id=? and users.oauth_token=?"
-	err := DB.QueryRow(checkQuery, stravaID, oAuthToken).Scan(&internalID, &email, &crowdriseUsername)
+	checkQuery := "select id, email, crowdrise_username, firstname, lastname from users where users.strava_id=? and users.oauth_token=?"
+	err := DB.QueryRow(checkQuery, stravaID, oAuthToken).Scan(&internalID, &email, &crowdriseUsername, &firstname, &lastname)
 	if err != nil && err == sql.ErrNoRows {
 		log.Printf("error finding any locally stored users for strava id %d with given token", stravaID)
 		return summary, errors.New(ErrBadRequest)
@@ -478,6 +480,8 @@ func getSummary(stravaID int, oAuthToken string, start time.Time) (Summary, erro
 	summary.Email = email
 	summary.StravaID = stravaID
 	summary.CrowdRiseUsername = crowdriseUsername.String
+	summary.Firstname = firstname
+	summary.Lastname = lastname
 
 	return summary, nil
 }
@@ -770,6 +774,97 @@ func crowdRiseSignupHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write(data)
 }
 
+// crowdRiseSignupHandler is invoked in the reverse proxy and captures important details
+// that our system wants about the signup if succuessful
+func crowdRiseSignupHandler(w http.ResponseWriter, r *http.Request) {
+	b, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		log.Printf("issue reading signup body - %v", err)
+		errJSONHandler(w, r, http.StatusInternalServerError, "internal error reading the signup body")
+		return
+	}
+	b = append(b, []byte(fmt.Sprintf("&api_key=%s&api_secret=%s", CROWDRISE_API_KEY, CROWDRISE_API_SECRET))...)
+	log.Printf("changing body to %s", b)
+	r.Body = ioutil.NopCloser(bytes.NewBuffer(b))
+	r.ContentLength = int64(len(b))
+
+	// get important parts. Working with strings because it is easier and the performance hit is no biggy here
+	parts := strings.Split(string(b), "&")
+	var firstname string // collected in the request
+	var lastname string  // collected in the request
+	for _, part := range parts {
+		keyValue := strings.Split(part, "=")
+		if keyValue[0] == "first_name" {
+			firstname = keyValue[1]
+		}
+		if keyValue[0] == "last_name" {
+			lastname = keyValue[1]
+		}
+	}
+
+	resp, err := http.Post(CROWDRISE_BASE_URL+"/api/signup", "application/x-www-form-urlencoded", bytes.NewBuffer(b))
+	if err != nil {
+		log.Printf("error signing up user - %q", err.Error())
+		errJSONHandler(w, r, http.StatusInternalServerError, "error signing up with crowdrise")
+		return
+	}
+	defer resp.Body.Close()
+
+	data, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		log.Printf("error reading response body from signup request - %q", err.Error())
+		errJSONHandler(w, r, http.StatusInternalServerError, "error reading response from crowdrise")
+		return
+	}
+
+	if resp.StatusCode > 300 {
+		log.Printf("unexpected response from crowdrise signup: %s", data)
+		errJSONHandler(w, r, http.StatusInternalServerError, "unexpected result from crowdrise")
+		return
+	}
+
+	var signupResponse struct {
+		Status string `json:"status"`
+		Result []struct {
+			UserCreated       bool   `json:"user_created"`
+			Username          string `json:"username"`
+			UserID            int    `json:"user_id"`
+			CompleteSignupURL string `json:"complete_signup_url"`
+			ErrorID           string `json:"error_id"`
+			Error             string `json:"error"`
+		} `json:"result"`
+	}
+	err = json.Unmarshal(data, &signupResponse)
+	if err != nil {
+		log.Printf("error unmarshalling signup response for %q: %q", string(data), err.Error())
+		errJSONHandler(w, r, http.StatusInternalServerError, "unable to parse result from crowdrise signup")
+		return
+	}
+
+	if !signupResponse.Result[0].UserCreated {
+		log.Printf("error - user not created - %s", string(data))
+		errJSONHandler(w, r, http.StatusInternalServerError, fmt.Sprintf("crowdrise did not create the user - %s", signupResponse.Result[0].Error))
+		return
+	}
+
+	authParts := strings.Split(r.Header.Get("Authorization"), " ")
+	if len(authParts) != 2 {
+		errJSONHandler(w, r, http.StatusBadRequest, "unable to get authorization header bearer token")
+		return
+	}
+	passedInToken := authParts[1]
+
+	_, err = DB.Exec("update users set crowdrise_username=?, firstname=?, lastname=? where oauth_token=? limit 1", signupResponse.Result[0].Username, firstname, lastname, passedInToken)
+	if err != nil {
+		log.Printf("error updating user record with crowdrise information - %q", err.Error())
+		errJSONHandler(w, r, http.StatusInternalServerError, "internal storage error saving crowdrise information")
+		return
+	}
+
+	// pass the data back to the front end
+	w.Write(data)
+}
+
 // crowdRiseReverseProxyHandler is a reverse proxy that appends the api user and token to a request and forwards it.
 // use case: the user is logged in and the js frontend is making a request for
 // data to crowdRise. Validate the email/oauth_token combo exists in the db
@@ -860,6 +955,7 @@ func crowdRiseReverseProxyHandler(w http.ResponseWriter, r *http.Request) {
 		errJSONHandler(w, r, http.StatusInternalServerError, directorErr.Error())
 		return
 	}
+
 	log.Printf("crowdrise proxy request complete")
 }
 
