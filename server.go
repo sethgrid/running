@@ -520,8 +520,8 @@ func getEventTotal(start time.Time) (EventTotal, error) {
 type LeaderboardEntry struct {
 	FullName string `json:"fullname"`
 	StravaId int `json:"strava_id"`
-	MilesRun float32 `json:"milesrun"`
-	MetersGained float32 `json:"metersgained"`
+	MilesRun int `json:"milesrun"`
+	ThousandFeetGained int `json:"metersgained"`
 	DaysRun int `json:"daysrun"`
 }
 
@@ -543,8 +543,8 @@ func getLeaderboardData(start time.Time) ([]LeaderboardEntry, error) {
 		}
 		var e LeaderboardEntry
 		e.StravaId = strava_id
-		e.MilesRun = metersrun/1609.34
-		e.MetersGained = metersgained
+		e.MilesRun = int(metersrun/1609.34)
+		e.ThousandFeetGained = int(metersgained*3.28084/1000)
 		e.DaysRun = daysrun
 		e.FullName = firstname + " " + lastname
 		leaderboardData = append(leaderboardData, e)
