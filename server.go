@@ -192,6 +192,7 @@ func main() {
 
 	// authenticated HTML endpoints
 	r.Handle("/app", mwLogRequest(mwAuthenticated(http.HandlerFunc(appHandler))))
+	r.Handle("/setup", mwLogRequest(mwAuthenticated(http.HandlerFunc(setupHandler))))
 
 	// authenticated JSON endpoints via bearer token
 	r.Handle("/user/{id:[0-9]+}/summary", mwLogRequest(http.HandlerFunc(userSummaryHandler)))
@@ -315,7 +316,7 @@ func listAthleteActivities(oAuthToken string, startUnix int64) []Activity {
 }
 
 // checkAndSetUser will insert a user if they do not exist, update them if their email or oAuthToken has changed, or do nothing.
-func checkAndSetUser(stravaID int, email string, oAuthToken string) {
+func checkAndSetUser(stravaID int, email string, firstname string, lastname string, oAuthToken string) {
 	var ID int
 	var previousEmail string
 	var previousOAuthToken string
@@ -327,7 +328,7 @@ func checkAndSetUser(stravaID int, email string, oAuthToken string) {
 	now := time.Now().Format(MysqlDateFormat)
 
 	if ID == 0 {
-		result, err := DB.Exec(`insert into users (strava_id, email, oauth_token, updated_at, created_at) values (?, ?, ?, ?, ?)`, stravaID, email, oAuthToken, now, now)
+		result, err := DB.Exec(`insert into users (strava_id, email, oauth_token, firstname, lastname, updated_at, created_at) values (?, ?, ?, ?, ?, ?, ?)`, stravaID, email, oAuthToken, firstname, lastname, now, now)
 		if err != nil {
 			log.Printf("error inserting new users into database - %v", err)
 			return
@@ -650,7 +651,7 @@ func tokenHandler(w http.ResponseWriter, r *http.Request) {
 	// **************************************************************
 	// make sure user is set up in the db - can be done in background
 
-	go checkAndSetUser(OAuthData.StravaAthlete.ID, OAuthData.StravaAthlete.Email, OAuthData.AccessToken)
+	go checkAndSetUser(OAuthData.StravaAthlete.ID, OAuthData.StravaAthlete.Email, OAuthData.StravaAthlete.FirstName, OAuthData.StravaAthlete.LastName, OAuthData.AccessToken)
 
 	// ****************************
 	// set AuthCookieName and redirect
@@ -670,7 +671,17 @@ func tokenHandler(w http.ResponseWriter, r *http.Request) {
 
 	http.SetCookie(w, &cookie)
 	//Handle redirection based on state
+	//For new registrants, check for an existing crowdrise account and use it if present
 	if state == "newreg" {
+		// Check to see if a Crowdrise account already exists and if so, update the users table
+		//if crowdRiseCheckAndSetUser(OAuthData.StravaAthlete.Email, w, r, OAuthData.AccessToken) {
+		//	// There was already a crowdrise user, and we updated the users table.
+		//	// Drop the user at the setup page to finish their fundraising setup
+		//	log.Printf("The person already had a crowdrise account")
+		//	w.Header().Set("Location", "/setup")
+		//	w.WriteHeader(301)
+		//	w.Write([]byte("Redirecting to /setup..."))
+		//}
 		log.Printf("forwarding request to /register for part 2")
 		w.Header().Set("Location", "/register")
 		w.WriteHeader(301)
@@ -685,31 +696,17 @@ func tokenHandler(w http.ResponseWriter, r *http.Request) {
 
 // crowdRiseSignupHandler is invoked in the reverse proxy and captures important details
 // that our system wants about the signup if succuessful
-func crowdRiseSignupHandler(w http.ResponseWriter, r *http.Request) {
+func crowdRiseSignupHandler(w http.ResponseWriter, r *http.Request, email string, firstname string, lastname string) {
 	b, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		log.Printf("issue reading signup body - %v", err)
 		errJSONHandler(w, r, http.StatusInternalServerError, "internal error reading the signup body")
 		return
 	}
-	b = append(b, []byte(fmt.Sprintf("&api_key=%s&api_secret=%s", CROWDRISE_API_KEY, CROWDRISE_API_SECRET))...)
+	b = append(b, []byte(fmt.Sprintf("&api_key=%s&api_secret=%s&email=%s&first_name=%s&last_name=%s", CROWDRISE_API_KEY, CROWDRISE_API_SECRET, email, firstname, lastname))...)
 	log.Printf("changing body to %s", b)
 	r.Body = ioutil.NopCloser(bytes.NewBuffer(b))
 	r.ContentLength = int64(len(b))
-
-	// get important parts. Working with strings because it is easier and the performance hit is no biggy here
-	parts := strings.Split(string(b), "&")
-	var firstname string // collected in the request
-	var lastname string  // collected in the request
-	for _, part := range parts {
-		keyValue := strings.Split(part, "=")
-		if keyValue[0] == "first_name" {
-			firstname = keyValue[1]
-		}
-		if keyValue[0] == "last_name" {
-			lastname = keyValue[1]
-		}
-	}
 
 	resp, err := http.Post(CROWDRISE_BASE_URL+"/api/signup", "application/x-www-form-urlencoded", bytes.NewBuffer(b))
 	if err != nil {
@@ -750,7 +747,8 @@ func crowdRiseSignupHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !signupResponse.Result[0].UserCreated {
+	//If the user already exists, that's fine, we want to store the user's info anyway
+	if !signupResponse.Result[0].UserCreated && signupResponse.Result[0].ErrorID != "1100" {
 		log.Printf("error - user not created - %s", string(data))
 		errJSONHandler(w, r, http.StatusInternalServerError, fmt.Sprintf("crowdrise did not create the user - %s", signupResponse.Result[0].Error))
 		return
@@ -787,8 +785,8 @@ func crowdRiseReverseProxyHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	passedInToken := parts[1]
 
-	var email string
-	err := DB.QueryRow("select email from users where oauth_token=? limit 1", passedInToken).Scan(&email)
+	var email, firstname, lastname string
+	err := DB.QueryRow("select email, firstname, lastname from users where oauth_token=? limit 1", passedInToken).Scan(&email, &firstname, &lastname)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			errJSONHandler(w, r, http.StatusBadRequest, "invalid token, no associated user found")
@@ -809,15 +807,15 @@ func crowdRiseReverseProxyHandler(w http.ResponseWriter, r *http.Request) {
 	case "api/check_if_user_exists":
 	case "api/heartbeat":
 	case "api/signup":
-		crowdRiseSignupHandler(w, r)
+		crowdRiseSignupHandler(w, r, email, firstname, lastname)
 		return
 	case "api/url_data":
+	case "api/charity_basic_search":
 	default:
 		log.Println("non-whitelist url attempted: %s", fwdStr)
 		errJSONHandler(w, r, http.StatusBadRequest, "proxy request not allowed")
 		return
 	}
-
 	var directorErr error
 	director := func(req *http.Request) {
 		// handle both cases where we got `http://hostname` or `hostname`
@@ -937,6 +935,39 @@ func appHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("error executing template in appHandler - %v", err)
 		errHandler(w, r, http.StatusInternalServerError, "internal error executing app template")
+		return
+	}
+}
+
+// setupHandler presents the setup.html template and should be behind the mwAuthenticated middleware
+func setupHandler(w http.ResponseWriter, r *http.Request) {
+	templates := []string{"base.html","setup.html"}
+	t, err := template.ParseFiles(templates...)
+	if err != nil {
+		log.Println("unable to parse setup.html for rendering - %v", err)
+		errHandler(w, r, http.StatusInternalServerError, "internal error parsing setup template")
+		return
+	}
+
+	cookieData, err := readAuthCookie(r)
+	if err != nil {
+		log.Println("error reading cookie data in setupHandler")
+		authErrHandler(w, r, "unable to read cookie data in setup.html. Please log back in.")
+		return
+	}
+
+	data := struct {
+		Email string
+		FirstName string
+	}{
+		Email: cookieData.StravaAthlete.Email,
+		FirstName: cookieData.StravaAthlete.FirstName,
+	}
+
+	err = t.Execute(w, data)
+	if err != nil {
+		log.Printf("error executing template in setupHandler - %v", err)
+		errHandler(w, r, http.StatusInternalServerError, "internal error executing setup template")
 		return
 	}
 }

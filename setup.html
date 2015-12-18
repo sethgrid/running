@@ -1,0 +1,29 @@
+<!--
+Developer Notes:
+This file is read in as a template and will not work properly until parsed.
+This page will only display after the user has been authenticated
+
+Variables:
+ - {{.Email}}
+ - {{.FirstName}}
+-->
+{{ define "content" }}
+<div class="container-fluid">
+	<div class="row">
+		<div class="col-sm-6 col-sm-offset-3">
+			<h1>Welcome to 300 Days of Run, {{.FirstName}}</h1>
+			<p>
+				You're officially registered, you're connected with Strava and Crowdrise, and now it's time to select the charity you'll be raising money for this year.
+			</p>
+			<form name="crowdriseCharitySearch" action="" method="post">
+				<div class="form-group">
+					<label for="charityname">Charity Name</label>
+					<input class="form-control" id="charityname" name="charityname" type="text" />
+				</div>
+				<button name="search" class="btn btn-lg btn-primary" onClick="searchCrowdriseCharity(this.form)">Search</button>
+			</form>
+		</div>
+	</div>
+</div>
+<script src="assets/setup.js"></script>
+{{ end }}

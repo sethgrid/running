@@ -4,11 +4,13 @@
 		<h1 class="visible-sm visible-md visible-lg">Step 1: Connect with Strava</h1>
 		<h3 class="visible-xs">Step 1: Connect with Strava</h3>
 		<p>First things first. We use Strava to track all of your runs throughout the year. Click below to connect your existing Strava account to 300 Days of Run. If you don't have a Strava account yet, you'll be able to create one after clicking the "Connect with Strava" button.</p>
-		<a href="https://www.strava.com/oauth/authorize?client_id={{.StravaClientID}}&response_type=code&redirect_uri=http://300daysofrun.com/token_exchange&scope=write&state=newreg&approval_prompt=force">
-		      <img src="https://strava.github.io/api/images/ConnectWithStrava.png">
-		</a>
-		<p>
-			<small>By connecting with Strava, you agree to our <a href="/terms">terms</a>.</small>
+		<p class="text-center">
+			<a href="https://www.strava.com/oauth/authorize?client_id={{.StravaClientID}}&response_type=code&redirect_uri=http://300daysofrun.com/token_exchange&scope=write&state=newreg&approval_prompt=force">
+			      <img src="https://strava.github.io/api/images/ConnectWithStrava.png">
+			</a>
+			<p class="text-center">
+				<small>By connecting with Strava, you agree to our <a href="/terms">terms</a>.</small>
+			</p>
 		</p>
 	</div>
 	<div class="col-sm-6 col-sm-offset-3">

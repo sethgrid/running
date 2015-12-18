@@ -11,68 +11,28 @@ var result = $.ajax({
         'Authorization':"Bearer "+tokenData.access_token,
     },
     method: 'GET',
-    success: summaryData,
     fail: function(data){
         console.log('failed to get summary data: '+data);
     },
 });
 
-function summaryData(data){
-    var summary = JSON.parse(data);
-    console.log("summary:",summary)
-    if (!summary.CrowdRiseUsername.length){
-        var el = $('<div id="crowdrise_signup">You need to sign up for CrowdRise!</div>');
-        $("#main_container").append(el);
-    } else {
-        var el = $('<div id="crowdrise_widget">You have a CrowdRise username, we should display a widget!</div>');
-        $("#main_container").append(el);
-    }
-    USER_EMAIL = summary.email;
-    checkCrowdriseForUser(tokenData, summary.email);
-}
-
-function checkCrowdriseForUser(tokenData,email){
-    var jqxhr = $.ajax({
-        url: "crowdrise/api/check_if_user_exists",
-        method: 'POST',
-        headers: {
-            'Authorization':"Bearer "+tokenData.access_token,
-        },
-        data: {'email': email},
-        success: CrowdRiseCheckUserResult,
-        fail: function(data){
-            console.log('failed to check for crowdrise user: '+data);
-        },
-    });
-}
-
-function CrowdRiseCheckUserResult(data){
-    console.log('check user result:', data);
-    obj = JSON.parse(data);
-    console.log('user exists?',obj.result[0].user_exists);
-}
-
-function CrowdRiseCheckNewUserResult(data){
+function CrowdRiseCreateNewUserResult(data){
 	console.log('create user result:', data);
+    $("#result").replaceWith("<h4>Crowdrise signup complete. After this, the user will be taken to a page to set up their team.</h4>");
 }
 
-function createCrowdriseUser(form){
+function crowdriseSetup(form){
 	form.submit.disabled = true;
-	form.submit.innerHTML = "<i class='fa fa-spinner fa-spin'> </i> Submitting..."
-	var jqxhr = $.ajax({
+    form.submit.innerHTML = "<i class='fa fa-spinner fa-spin'> </i> Communicating with Crowdrise...";
+    var jqxhr = $.ajax({
         url: "crowdrise/api/signup",
         method: 'POST',
         headers: {
             'Authorization':"Bearer "+tokenData.access_token,
         },
-        data: {'email': USER_EMAIL, 
-        	   'first_name': form.firstname.value,
-        	   'last_name': form.lastname.value,
-        	   'password': form.password.value
-        	},
-        success: CrowdRiseCheckNewUserResult,
+        success: CrowdRiseCreateNewUserResult,
         fail: function(data){
-            console.log('failed to check crowdrise healthcheck: '+data);
+            console.log('failed to create crowdrise user: '+data);
         },
     });
 }
