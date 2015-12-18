@@ -552,7 +552,7 @@ func getLeaderboardData(start time.Time) ([]LeaderboardEntry, error) {
 
 // homeHandler presents the index.html template
 func homeHandler(w http.ResponseWriter, r *http.Request) {
-	templates := []string{"base.html","index.html"}
+	templates := []string{"templates/base.html","templates/index.html"}
 	t, err := template.ParseFiles(templates...)
 	if err != nil {
 		log.Println("unable to parse index.html for rendering - %v", err)
@@ -586,16 +586,16 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
 
 // registerHandler presents the register.html template
 func registerHandler(w http.ResponseWriter, r *http.Request) {
-	templates := []string{"base.html","register.html"}
+	templates := []string{"templates/base.html","templates/register.html"}
 	
 	//Check to see whether the user is cookied
 	cookieData, err := readAuthCookie(r)
 	if err != nil {
 		log.Println("user not cookied, showing full registration page")
-		templates = append(templates,"register-all.html")
+		templates = append(templates,"templates/register-all.html")
 	} else {
 		log.Println("user cookied, showing step 2 page only")
-		templates = append(templates,"register-step-2-only.html")
+		templates = append(templates,"templates/register-step-2-only.html")
 	}
 	_ = cookieData
 
@@ -907,7 +907,7 @@ func StravaOAuthTokenEndpoint(code string) (StravaOAuthTokenResponse, []byte, er
 
 // appHandler presents the app.html template and should be behind the mwAuthenticated middleware
 func appHandler(w http.ResponseWriter, r *http.Request) {
-	templates := []string{"base.html","app.html"}
+	templates := []string{"templates/base.html","templates/app.html"}
 	t, err := template.ParseFiles(templates...)
 	if err != nil {
 		log.Println("unable to parse app.html for rendering - %v", err)
@@ -938,7 +938,7 @@ func appHandler(w http.ResponseWriter, r *http.Request) {
 
 // setupHandler presents the setup.html template and should be behind the mwAuthenticated middleware
 func setupHandler(w http.ResponseWriter, r *http.Request) {
-	templates := []string{"base.html","setup.html"}
+	templates := []string{"templates/base.html","templates/setup.html"}
 	t, err := template.ParseFiles(templates...)
 	if err != nil {
 		log.Println("unable to parse setup.html for rendering - %v", err)
