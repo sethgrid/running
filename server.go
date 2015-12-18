@@ -489,10 +489,9 @@ func getSummary(stravaID int, oAuthToken string, start time.Time) (Summary, erro
 
 // EventTotal provides a running total of all statistics for the entire event
 type EventTotal struct {
-	Participants	  int 			  `json:"participants"`
-	MetersRun		  float32 		  `json:"metersrun"`
-	MilesRun          float32         `json:"milesrun"`
-	MetersGained	  float32 		  `json:"metersgained"`
+	Participants	  	  int 			 `json:"participants"`
+	MilesRun          	  string         `json:"milesrun"`
+	ThousandFeetGained	  string 		 `json:"thousandfeetgained"`
 }
 
 // getEventTotal returns running totals since a given start date for the entire event
@@ -509,9 +508,8 @@ func getEventTotal(start time.Time) (EventTotal, error) {
 	}
 
 	eventTotal.Participants = participants
-	eventTotal.MetersRun = metersrun
-	eventTotal.MilesRun = metersrun/1609.34
-	eventTotal.MetersGained = metersgained
+	eventTotal.MilesRun = Comma(int64(metersrun/1609.34))
+	eventTotal.ThousandFeetGained = Comma(int64(metersgained*3.28084/1000))
 
 	return eventTotal, nil 
 }
@@ -567,17 +565,15 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
 		StravaClientID string
 		Participants int
 		MetersRun float32
-		MilesRun int
-		ThousandFeetGained int
+		MilesRun string
+		ThousandFeetGained string
 		MetersGained float32
 		LeaderboardData []LeaderboardEntry
 	}{
 		StravaClientID: STRAVA_CLIENT_ID,
 		Participants: totals.Participants,
-		MetersRun: totals.MetersRun,
-		MilesRun: int(totals.MetersRun/1609.34),
-		ThousandFeetGained: int(totals.MetersGained*3.28084/1000),
-		MetersGained: totals.MetersGained,
+		MilesRun: totals.MilesRun,
+		ThousandFeetGained: totals.ThousandFeetGained,
 		LeaderboardData: leaderboardData,
 	}
 
