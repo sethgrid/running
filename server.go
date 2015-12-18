@@ -14,7 +14,6 @@ import (
 	"io/ioutil"
 	"log"
 	"math/rand"
-	"math/big"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -521,8 +520,8 @@ func getEventTotal(start time.Time) (EventTotal, error) {
 type LeaderboardEntry struct {
 	FullName string `json:"fullname"`
 	StravaId int `json:"strava_id"`
-	MilesRun int `json:"milesrun"`
-	FeetGained int `json:"feetgained"`
+	MilesRun string `json:"milesrun"`
+	FeetGained string `json:"feetgained"`
 	DaysRun int `json:"daysrun"`
 }
 
@@ -544,8 +543,8 @@ func getLeaderboardData(start time.Time) ([]LeaderboardEntry, error) {
 		}
 		var e LeaderboardEntry
 		e.StravaId = strava_id
-		e.MilesRun = int(metersrun/1609.34)
-		e.FeetGained = int(metersgained*3.28084)
+		e.MilesRun = Comma(int64(metersrun/1609.34))
+		e.FeetGained = Comma(int64(metersgained*3.28084))
 		e.DaysRun = daysrun
 		e.FullName = firstname + " " + lastname
 		leaderboardData = append(leaderboardData, e)
@@ -1151,4 +1150,30 @@ func padBase64(s string) string {
 	padding := (4 - m) % 4 // use the modulo so that if m == 0, then padding is 0, not 4
 
 	return s + strings.Repeat("=", padding)
+}
+
+//Takes in an int and returns a string with thousands separators
+func Comma(v int64) string {
+	sign := ""
+	if v < 0 {
+		sign = "-"
+		v = 0 - v
+	}
+
+	parts := []string{"", "", "", "", "", "", ""}
+	j := len(parts) - 1
+
+	for v > 999 {
+		parts[j] = strconv.FormatInt(v%1000, 10)
+		switch len(parts[j]) {
+		case 2:
+			parts[j] = "0" + parts[j]
+		case 1:
+			parts[j] = "00" + parts[j]
+		}
+		v = v / 1000
+		j--
+	}
+	parts[j] = strconv.Itoa(int(v))
+	return sign + strings.Join(parts[j:], ",")
 }
