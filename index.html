@@ -75,7 +75,7 @@ Variables:
       <div class="col-sm-8 col-sm-offset-2">
         <table id="leaderboard" style="width:100%">
           <thead>
-            <th>Strava ID</th>
+            <th>Runner Name</th>
             <th>Miles Run</th>
             <th>Meters Gained</th>
             <th>Days Run</th>
@@ -114,7 +114,7 @@ $(document).ready(function(){
     $('#leaderboard').DataTable({
       data: {{.LeaderboardData}},
       columns: [
-        { data: 'stravaid' },
+        { data: 'fullname' },
         { data: 'milesrun' },
         { data: 'metersgained' },
         { data: 'daysrun' }

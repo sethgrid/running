@@ -537,7 +537,7 @@ func getLeaderboardData(start time.Time) ([]LeaderboardEntry, error) {
 		return leaderboardData, errors.New(ErrDB)
 	}
 	for rows.Next() {
-		if err := rows.Scan(&strava_id, &daysrun, &metersrun, & metersgained, &firstname, &lastname); err != nil {
+		if err := rows.Scan(&strava_id, &firstname, &lastname, &daysrun, &metersrun, & metersgained); err != nil {
 			log.Printf("error scanning for leaderboard data - %v", err)
 			continue
 		}
