@@ -518,7 +518,8 @@ func getEventTotal(start time.Time) (EventTotal, error) {
 
 // LeaderboardEntry provides a total of meters gained, miles run, and days run by user
 type LeaderboardEntry struct {
-	StravaId int `json:"stravaid"`
+	FullName string `json:"fullname"`
+	StravaId int `json:"strava_id"`
 	MilesRun float32 `json:"milesrun"`
 	MetersGained float32 `json:"metersgained"`
 	DaysRun int `json:"daysrun"`
@@ -526,18 +527,17 @@ type LeaderboardEntry struct {
 
 func getLeaderboardData(start time.Time) ([]LeaderboardEntry, error) {
 	var leaderboardData []LeaderboardEntry
-	leaderboardQuery := "select users.strava_id, count(distinct activities.start_date) as daysrun, sum(ifnull(Distance,0.0)) as metersrun, sum(ifnull(Elevation,0.0)) as metersgained FROM users inner join activities on users.id = activities.user_id where start_date > ? group by users.strava_id"
-	var strava_id int
-	var metersrun float32
-	var metersgained float32
-	var daysrun int
+	leaderboardQuery := "select users.strava_id, users.firstname, users.lastname, count(distinct activities.start_date) as daysrun, sum(ifnull(Distance,0.0)) as metersrun, sum(ifnull(Elevation,0.0)) as metersgained FROM users inner join activities on users.id = activities.user_id where start_date > ? group by users.strava_id"
+	var firstname, lastname string
+	var metersrun, metersgained float32
+	var daysrun, strava_id int
 	rows, err := DB.Query(leaderboardQuery, start.Format(MysqlDateFormat))
 	if err != nil {
 		log.Printf("error getting leaderboard data from database - %v", err)
 		return leaderboardData, errors.New(ErrDB)
 	}
 	for rows.Next() {
-		if err := rows.Scan(&strava_id, &daysrun, &metersrun, & metersgained); err != nil {
+		if err := rows.Scan(&strava_id, &daysrun, &metersrun, & metersgained, &firstname, &lastname); err != nil {
 			log.Printf("error scanning for leaderboard data - %v", err)
 			continue
 		}
@@ -546,6 +546,7 @@ func getLeaderboardData(start time.Time) ([]LeaderboardEntry, error) {
 		e.MilesRun = metersrun/1609.34
 		e.MetersGained = metersgained
 		e.DaysRun = daysrun
+		e.FullName = firstname + " " + lastname
 		leaderboardData = append(leaderboardData, e)
 	}
 	return leaderboardData, nil	
