@@ -18,7 +18,7 @@ var result = $.ajax({
 
 function CrowdRiseCreateNewUserResult(data){
 	console.log('create user result:', data);
-    $("#result").replaceWith("<h4>Crowdrise signup complete. After this, the user will be taken to a page to set up their team.</h4>");
+    $("#result").replaceWith("<h4>Crowdrise signup complete. After this, the user will be taken to a page to set up their team. That part's not done yet, so just <a href='/'>Click here</a> to go back to the homepage for now.</h4>");
 }
 
 function crowdriseSetup(form){

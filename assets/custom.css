@@ -45,12 +45,12 @@ body {
 #about {
 }
 
-#services {
+#stats {
   background-color: #306d9f;
   color: #ffffff;
 }
 
-#information {
+#leaderboard-section {
   background: url(http://static1.squarespace.com/static/5636de33e4b0ef5e7b46372a/t/5637ae42e4b03c8b27b6a4fd/1446489671400/shutterstock_162360983.jpg) no-repeat center center fixed; 
   display: table;
   height: 800px;
@@ -60,9 +60,6 @@ body {
   -moz-background-size: cover;
   -o-background-size: cover;
   background-size: cover;
-}
-#information .panel {
-  opacity: 0.85;
 }
 
 footer {
