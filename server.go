@@ -189,6 +189,7 @@ func main() {
 	r.Handle("/", mwLogRequest(http.HandlerFunc(homeHandler)))
 	r.Handle("/token_exchange", mwLogRequest(http.HandlerFunc(tokenHandler)))
 	r.Handle("/register", mwLogRequest(http.HandlerFunc(registerHandler)))
+	r.Handle("/terms", mwLogRequest(http.HandlerFunc(termsHandler)))
 
 	// authenticated HTML endpoints
 	r.Handle("/app", mwLogRequest(mwAuthenticated(http.HandlerFunc(appHandler))))
@@ -580,6 +581,22 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
 	err = t.Execute(w, data)
 	if err != nil {
 		log.Printf("error executing template in homeHandler - %v", err)
+		errHandler(w, r, http.StatusInternalServerError, "internal error executing templates")
+	}
+}
+
+// termsHandler presents the terms.html template
+func termsHandler(w http.ResponseWriter, r *http.Request) {
+	templates := []string{"templates/base.html","templates/terms.html"}
+	t, err := template.ParseFiles(templates...)
+	if err != nil {
+		log.Println("unable to parse terms.html for rendering - %v", err)
+		errHandler(w, r, http.StatusInternalServerError, "internal error parsing templates")
+	}
+
+	err = t.Execute(w, nil)
+	if err != nil {
+		log.Printf("error executing template in termsHandler - %v", err)
 		errHandler(w, r, http.StatusInternalServerError, "internal error executing templates")
 	}
 }
