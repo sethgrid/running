@@ -14,6 +14,7 @@ import (
 	"io/ioutil"
 	"log"
 	"math/rand"
+	"math/big"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -521,7 +522,7 @@ type LeaderboardEntry struct {
 	FullName string `json:"fullname"`
 	StravaId int `json:"strava_id"`
 	MilesRun int `json:"milesrun"`
-	ThousandFeetGained int `json:"metersgained"`
+	FeetGained int `json:"feetgained"`
 	DaysRun int `json:"daysrun"`
 }
 
@@ -544,7 +545,7 @@ func getLeaderboardData(start time.Time) ([]LeaderboardEntry, error) {
 		var e LeaderboardEntry
 		e.StravaId = strava_id
 		e.MilesRun = int(metersrun/1609.34)
-		e.ThousandFeetGained = int(metersgained*3.28084/1000)
+		e.FeetGained = int(metersgained*3.28084)
 		e.DaysRun = daysrun
 		e.FullName = firstname + " " + lastname
 		leaderboardData = append(leaderboardData, e)
