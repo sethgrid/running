@@ -15,12 +15,12 @@ Variables:
 			<p>
 				You're officially registered, you're connected with Strava and Crowdrise, and now it's time to select the charity you'll be raising money for this year.
 			</p>
-			<form name="crowdriseCharitySearch" action="" method="post">
+			<form name="crowdriseCharitySearch" action="" method="get">
 				<div class="form-group">
 					<label for="charityname">Charity Name</label>
 					<input class="form-control" id="charityname" name="charityname" type="text" />
 				</div>
-				<button name="search" class="btn btn-lg btn-primary" onClick="searchCrowdriseCharity(this.form)">Search</button>
+				<button name="search" class="btn btn-lg btn-primary" onClick="searchCrowdriseCharity(this.form); return false;">Search</button>
 			</form>
 		</div>
 	</div>

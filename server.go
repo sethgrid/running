@@ -192,6 +192,8 @@ func main() {
 	r.Handle("/terms", mwLogRequest(http.HandlerFunc(termsHandler)))
 	r.Handle("/about", mwLogRequest(http.HandlerFunc(aboutHandler)))
 	r.Handle("/rules", mwLogRequest(http.HandlerFunc(rulesHandler)))
+	r.Handle("/privacy", mwLogRequest(http.HandlerFunc(privacyHandler)))
+	r.Handle("/waiver", mwLogRequest(http.HandlerFunc(waiverHandler)))
 
 	// authenticated HTML endpoints
 	r.Handle("/app", mwLogRequest(mwAuthenticated(http.HandlerFunc(appHandler))))
@@ -650,6 +652,42 @@ func rulesHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// privacyHandler presents the privacy.html template
+func privacyHandler(w http.ResponseWriter, r *http.Request) {
+	templates := []string{"templates/base.html", "templates/privacy.html"}
+	t, err := template.ParseFiles(templates...)
+	if err != nil {
+		log.Println("unable to parse privacy.html for rendering - %v", err)
+		errHandler(w, r, http.StatusInternalServerError, "internal error parsing templates")
+		return
+	}
+
+	err = t.Execute(w, nil)
+	if err != nil {
+		log.Printf("error executing template in privacyHandler - %v", err)
+		errHandler(w, r, http.StatusInternalServerError, "internal error executing templates")
+		return
+	}
+}
+
+// waiverHandler presents the waiver.html template
+func waiverHandler(w http.ResponseWriter, r *http.Request) {
+	templates := []string{"templates/base.html", "templates/waiver.html"}
+	t, err := template.ParseFiles(templates...)
+	if err != nil {
+		log.Println("unable to parse waiver.html for rendering - %v", err)
+		errHandler(w, r, http.StatusInternalServerError, "internal error parsing templates")
+		return
+	}
+
+	err = t.Execute(w, nil)
+	if err != nil {
+		log.Printf("error executing template in waiverHandler - %v", err)
+		errHandler(w, r, http.StatusInternalServerError, "internal error executing templates")
+		return
+	}
+}
+
 // registerHandler presents the register.html template
 func registerHandler(w http.ResponseWriter, r *http.Request) {
 	templates := []string{"templates/base.html", "templates/register.html"}
@@ -882,6 +920,10 @@ func crowdRiseReverseProxyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	case "api/url_data":
 	case "api/charity_basic_search":
+		values := r.URL.Query()
+		values.Add("api_key", CROWDRISE_API_KEY)
+		values.Add("api_secret", CROWDRISE_API_SECRET)
+		r.URL.RawQuery = values.Encode()
 	default:
 		log.Println("non-whitelist url attempted: %s", fwdStr)
 		errJSONHandler(w, r, http.StatusBadRequest, "proxy request not allowed")
@@ -924,6 +966,7 @@ func crowdRiseReverseProxyHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	b = append(b, []byte(fmt.Sprintf("&api_key=%s&api_secret=%s", CROWDRISE_API_KEY, CROWDRISE_API_SECRET))...)
 	log.Printf("changing body to %s", b)
+	log.Printf("request URL is: %s", r.URL)
 	r.Body = ioutil.NopCloser(bytes.NewBuffer(b))
 	r.ContentLength = int64(len(b))
 
