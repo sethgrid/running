@@ -105,11 +105,11 @@ type Athlete struct {
 
 // Activity represents the interesting fields from the list activty endpoint
 type Activity struct {
-	ID        int     `json:"ID"`
-	Distance  float32 `json:"distance"`
+	ID                 int     `json:"ID"`
+	Distance           float32 `json:"distance"`
 	TotalElevationGain float32 `json:"total_elevation_gain"`
-	Type      string  `json:"type"`
-	StartDate string  `json:"start_date"` // 2013-08-24T00:04:12Z
+	Type               string  `json:"type"`
+	StartDate          string  `json:"start_date"` // 2013-08-24T00:04:12Z
 }
 
 func main() {
@@ -262,7 +262,6 @@ func activityUpdator(limitToUserID int) {
 
 // listAthleteActivities grabs activities from Strava
 func listAthleteActivities(oAuthToken string, startUnix int64) []Activity {
-	var activities []Activity
 	var allActivities []Activity
 	var newStartUnix int64
 
@@ -273,43 +272,50 @@ func listAthleteActivities(oAuthToken string, startUnix int64) []Activity {
 	}
 	results := 1
 	for results > 0 {
-		req, err := http.NewRequest("GET", "https://www.strava.com/api/v3/athlete/activities"+requestQuery, strings.NewReader(""))
-		if err != nil {
-			log.Printf("error setting up new request to activities - %v", err)
-			return activities
-		}
-		defer req.Body.Close()
+		// call a function so we can use defer statements for closing .Body()
+		activities := func() []Activity {
+			var activities []Activity
+			req, err := http.NewRequest("GET", "https://www.strava.com/api/v3/athlete/activities"+requestQuery, strings.NewReader(""))
+			if err != nil {
+				log.Printf("error setting up new request to activities - %v", err)
+				return activities
+			}
+			defer req.Body.Close()
 
-		req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", oAuthToken))
-		resp, err := cli.Do(req)
-		if err != nil {
-			log.Printf("error getting response for activities - %v", err)
-			return activities
-		}
-		defer resp.Body.Close()
-		body, err := ioutil.ReadAll(resp.Body)
-		if err != nil {
-			log.Printf("error reading response body for activities - %v", err)
-			return activities
-		}
-		if resp.StatusCode > 300 {
-			log.Printf("unexected response getting activities - %s %s", gencurl.FromRequest(req), string(body))
-			return activities
-		}
+			req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", oAuthToken))
+			resp, err := cli.Do(req)
+			if err != nil {
+				log.Printf("error getting response for activities - %v", err)
+				return activities
+			}
+			defer resp.Body.Close()
+			body, err := ioutil.ReadAll(resp.Body)
+			if err != nil {
+				log.Printf("error reading response body for activities - %v", err)
+				return activities
+			}
+			if resp.StatusCode > 300 {
+				log.Printf("unexected response getting activities - %s %s", gencurl.FromRequest(req), string(body))
+				return activities
+			}
 
-		err = json.Unmarshal(body, &activities)
-		if err != nil {
-			log.Printf("error marshalling activities  %s - %v", string(body), err)
+			err = json.Unmarshal(body, &activities)
+			if err != nil {
+				log.Printf("error marshalling activities  %s - %v", string(body), err)
+				return activities
+			}
+
 			return activities
-		}
+		}()
+
 		results = len(activities)
 		if results > 0 {
-			allActivities = append(allActivities,activities...)
-			newStartDate, err := time.Parse("2006-01-02T15:04:05Z",activities[len(activities)-1].StartDate)
+			allActivities = append(allActivities, activities...)
+			newStartDate, err := time.Parse("2006-01-02T15:04:05Z", activities[len(activities)-1].StartDate)
 			if err != nil {
-					log.Printf("error parsing time from activities - %v", err)
-					continue
-				}
+				log.Printf("error parsing time from activities - %v", err)
+				continue
+			}
 			newStartUnix = newStartDate.Unix()
 			requestQuery = fmt.Sprintf("?per_page=200&after=%d", newStartUnix)
 		}
@@ -437,7 +443,7 @@ func getSummary(stravaID int, oAuthToken string, start time.Time) (Summary, erro
 
 	// verify that this user exists in our records
 	var internalID int
-	var email string 
+	var email string
 	var firstname, lastname, crowdriseUsername sql.NullString
 	checkQuery := "select id, email, crowdrise_username, firstname, lastname from users where users.strava_id=? and users.oauth_token=?"
 	err := DB.QueryRow(checkQuery, stravaID, oAuthToken).Scan(&internalID, &email, &crowdriseUsername, &firstname, &lastname)
@@ -457,6 +463,7 @@ func getSummary(stravaID int, oAuthToken string, start time.Time) (Summary, erro
 		log.Printf("error getting local activity records for strava id %d - %v", stravaID, err)
 		return summary, errors.New(ErrDB)
 	}
+	defer rows.Close()
 
 	// seed the return
 	date := start
@@ -492,9 +499,9 @@ func getSummary(stravaID int, oAuthToken string, start time.Time) (Summary, erro
 
 // EventTotal provides a running total of all statistics for the entire event
 type EventTotal struct {
-	Participants	  	  int 			 `json:"participants"`
-	MilesRun          	  string         `json:"milesrun"`
-	ThousandFeetGained	  string 		 `json:"thousandfeetgained"`
+	Participants       int    `json:"participants"`
+	MilesRun           string `json:"milesrun"`
+	ThousandFeetGained string `json:"thousandfeetgained"`
 }
 
 // getEventTotal returns running totals since a given start date for the entire event
@@ -511,19 +518,19 @@ func getEventTotal(start time.Time) (EventTotal, error) {
 	}
 
 	eventTotal.Participants = participants
-	eventTotal.MilesRun = Comma(int64(metersrun/1609.34))
-	eventTotal.ThousandFeetGained = Comma(int64(metersgained*3.28084/1000))
+	eventTotal.MilesRun = Comma(int64(metersrun / 1609.34))
+	eventTotal.ThousandFeetGained = Comma(int64(metersgained * 3.28084 / 1000))
 
-	return eventTotal, nil 
+	return eventTotal, nil
 }
 
 // LeaderboardEntry provides a total of meters gained, miles run, and days run by user
 type LeaderboardEntry struct {
-	FullName string `json:"fullname"`
-	StravaId int `json:"strava_id"`
-	MilesRun string `json:"milesrun"`
+	FullName   string `json:"fullname"`
+	StravaId   int    `json:"strava_id"`
+	MilesRun   string `json:"milesrun"`
 	FeetGained string `json:"feetgained"`
-	DaysRun int `json:"daysrun"`
+	DaysRun    int    `json:"daysrun"`
 }
 
 func getLeaderboardData(start time.Time) ([]LeaderboardEntry, error) {
@@ -537,25 +544,27 @@ func getLeaderboardData(start time.Time) ([]LeaderboardEntry, error) {
 		log.Printf("error getting leaderboard data from database - %v", err)
 		return leaderboardData, errors.New(ErrDB)
 	}
+	defer rows.Close()
+
 	for rows.Next() {
-		if err := rows.Scan(&strava_id, &firstname, &lastname, &daysrun, &metersrun, & metersgained); err != nil {
+		if err := rows.Scan(&strava_id, &firstname, &lastname, &daysrun, &metersrun, &metersgained); err != nil {
 			log.Printf("error scanning for leaderboard data - %v", err)
 			continue
 		}
 		var e LeaderboardEntry
 		e.StravaId = strava_id
-		e.MilesRun = Comma(int64(metersrun/1609.34))
-		e.FeetGained = Comma(int64(metersgained*3.28084))
+		e.MilesRun = Comma(int64(metersrun / 1609.34))
+		e.FeetGained = Comma(int64(metersgained * 3.28084))
 		e.DaysRun = daysrun
 		e.FullName = firstname + " " + lastname
 		leaderboardData = append(leaderboardData, e)
 	}
-	return leaderboardData, nil	
+	return leaderboardData, nil
 }
 
 // homeHandler presents the index.html template
 func homeHandler(w http.ResponseWriter, r *http.Request) {
-	templates := []string{"templates/base.html","templates/index.html"}
+	templates := []string{"templates/base.html", "templates/index.html"}
 	t, err := template.ParseFiles(templates...)
 	if err != nil {
 		log.Println("unable to parse index.html for rendering - %v", err)
@@ -565,19 +574,19 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
 	totals, err := getEventTotal(tm.Local())
 	leaderboardData, err := getLeaderboardData(tm.Local())
 	data := struct {
-		StravaClientID string
-		Participants int
-		MetersRun float32
-		MilesRun string
+		StravaClientID     string
+		Participants       int
+		MetersRun          float32
+		MilesRun           string
 		ThousandFeetGained string
-		MetersGained float32
-		LeaderboardData []LeaderboardEntry
+		MetersGained       float32
+		LeaderboardData    []LeaderboardEntry
 	}{
-		StravaClientID: STRAVA_CLIENT_ID,
-		Participants: totals.Participants,
-		MilesRun: totals.MilesRun,
+		StravaClientID:     STRAVA_CLIENT_ID,
+		Participants:       totals.Participants,
+		MilesRun:           totals.MilesRun,
 		ThousandFeetGained: totals.ThousandFeetGained,
-		LeaderboardData: leaderboardData,
+		LeaderboardData:    leaderboardData,
 	}
 
 	err = t.Execute(w, data)
@@ -589,66 +598,71 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
 
 // termsHandler presents the terms.html template
 func termsHandler(w http.ResponseWriter, r *http.Request) {
-	templates := []string{"templates/base.html","templates/terms.html"}
+	templates := []string{"templates/base.html", "templates/terms.html"}
 	t, err := template.ParseFiles(templates...)
 	if err != nil {
 		log.Println("unable to parse terms.html for rendering - %v", err)
 		errHandler(w, r, http.StatusInternalServerError, "internal error parsing templates")
+		return
 	}
 
 	err = t.Execute(w, nil)
 	if err != nil {
 		log.Printf("error executing template in termsHandler - %v", err)
 		errHandler(w, r, http.StatusInternalServerError, "internal error executing templates")
+		return
 	}
 }
 
 // aboutHandler presents the terms.html template
 func aboutHandler(w http.ResponseWriter, r *http.Request) {
-	templates := []string{"templates/base.html","templates/about.html"}
+	templates := []string{"templates/base.html", "templates/about.html"}
 	t, err := template.ParseFiles(templates...)
 	if err != nil {
 		log.Println("unable to parse about.html for rendering - %v", err)
 		errHandler(w, r, http.StatusInternalServerError, "internal error parsing templates")
+		return
 	}
 
 	err = t.Execute(w, nil)
 	if err != nil {
 		log.Printf("error executing template in aboutHandler - %v", err)
 		errHandler(w, r, http.StatusInternalServerError, "internal error executing templates")
+		return
 	}
 }
 
 // rulesHandler presents the terms.html template
 func rulesHandler(w http.ResponseWriter, r *http.Request) {
-	templates := []string{"templates/base.html","templates/rules.html"}
+	templates := []string{"templates/base.html", "templates/rules.html"}
 	t, err := template.ParseFiles(templates...)
 	if err != nil {
 		log.Println("unable to parse rules.html for rendering - %v", err)
 		errHandler(w, r, http.StatusInternalServerError, "internal error parsing templates")
+		return
 	}
 
 	err = t.Execute(w, nil)
 	if err != nil {
 		log.Printf("error executing template in rulesHandler - %v", err)
 		errHandler(w, r, http.StatusInternalServerError, "internal error executing templates")
+		return
 	}
 }
 
 // registerHandler presents the register.html template
 func registerHandler(w http.ResponseWriter, r *http.Request) {
-	templates := []string{"templates/base.html","templates/register.html"}
-	
+	templates := []string{"templates/base.html", "templates/register.html"}
+
 	//Check to see whether the user is cookied
-	cookieData, err := readAuthCookie(r)
+	_, err := readAuthCookie(r)
 	if err != nil {
 		log.Println("user not cookied, showing full registration page")
-		templates = append(templates,"templates/register-all.html")
+		templates = append(templates, "templates/register-all.html")
 	} else {
 		log.Println("user cookied, showing step 2 page only")
-		templates = append(templates,"templates/register-step-2-only.html")
+		templates = append(templates, "templates/register-step-2-only.html")
 	}
-	_ = cookieData
 
 	data := struct {
 		StravaClientID string
@@ -659,11 +673,13 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Println("unable to parse register.html for rendering - %v", err)
 		errHandler(w, r, http.StatusInternalServerError, "internal error parsing templates")
+		return
 	}
 	err = t.Execute(w, data)
 	if err != nil {
 		log.Printf("error executing template in registerHandler - %v", err)
 		errHandler(w, r, http.StatusInternalServerError, "internal error executing templates")
+		return
 	}
 }
 
@@ -732,12 +748,12 @@ func tokenHandler(w http.ResponseWriter, r *http.Request) {
 		//}
 		log.Printf("forwarding request to /register for part 2")
 		w.Header().Set("Location", "/register")
-		w.WriteHeader(301)
+		w.WriteHeader(http.StatusTemporaryRedirect)
 		w.Write([]byte("Redirecting to /register..."))
 	} else {
 		log.Printf("forwarding request to /app")
 		w.Header().Set("Location", "/app")
-		w.WriteHeader(301)
+		w.WriteHeader(http.StatusTemporaryRedirect)
 		w.Write([]byte("Redirecting to /app..."))
 	}
 }
@@ -792,6 +808,13 @@ func crowdRiseSignupHandler(w http.ResponseWriter, r *http.Request, email string
 	if err != nil {
 		log.Printf("error unmarshalling signup response for %q: %q", string(data), err.Error())
 		errJSONHandler(w, r, http.StatusInternalServerError, "unable to parse result from crowdrise signup")
+		return
+	}
+
+	// avoid panics for out of bounds index access below
+	if len(signupResponse.Result) == 0 {
+		log.Printf("error - crowdrise did not return data in result key - %s", string(data))
+		errJSONHandler(w, r, http.StatusInternalServerError, "crowdrise did not return data in the result key")
 		return
 	}
 
@@ -958,7 +981,7 @@ func StravaOAuthTokenEndpoint(code string) (StravaOAuthTokenResponse, []byte, er
 
 // appHandler presents the app.html template and should be behind the mwAuthenticated middleware
 func appHandler(w http.ResponseWriter, r *http.Request) {
-	templates := []string{"templates/base.html","templates/app.html"}
+	templates := []string{"templates/base.html", "templates/app.html"}
 	t, err := template.ParseFiles(templates...)
 	if err != nil {
 		log.Println("unable to parse app.html for rendering - %v", err)
@@ -989,7 +1012,7 @@ func appHandler(w http.ResponseWriter, r *http.Request) {
 
 // setupHandler presents the setup.html template and should be behind the mwAuthenticated middleware
 func setupHandler(w http.ResponseWriter, r *http.Request) {
-	templates := []string{"templates/base.html","templates/setup.html"}
+	templates := []string{"templates/base.html", "templates/setup.html"}
 	t, err := template.ParseFiles(templates...)
 	if err != nil {
 		log.Println("unable to parse setup.html for rendering - %v", err)
@@ -1005,10 +1028,10 @@ func setupHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := struct {
-		Email string
+		Email     string
 		FirstName string
 	}{
-		Email: cookieData.StravaAthlete.Email,
+		Email:     cookieData.StravaAthlete.Email,
 		FirstName: cookieData.StravaAthlete.FirstName,
 	}
 
@@ -1023,8 +1046,15 @@ func setupHandler(w http.ResponseWriter, r *http.Request) {
 // authErrHandler redirects a request to `/` and puts a message in the query for use at the index
 func authErrHandler(w http.ResponseWriter, r *http.Request, msg string) {
 	log.Println("forwarding un-authed request to index")
+
+	cookie := http.Cookie{}
+	cookie.Name = AuthCookieName
+	cookie.Value = ""
+	cookie.MaxAge = -1 // delete now
+	http.SetCookie(w, &cookie)
+
 	w.Header().Set("Location", "/?message="+url.QueryEscape(msg))
-	w.WriteHeader(301)
+	w.WriteHeader(http.StatusUnauthorized)
 	w.Write([]byte("Redirecting to index..."))
 }
 
@@ -1055,7 +1085,7 @@ func readAuthCookie(r *http.Request) (StravaOAuthTokenResponse, error) {
 
 	decoded, err := base64.StdEncoding.DecodeString(cookie.Value)
 	if err != nil {
-		log.Printf("error decoding cookie value - %s", string(decoded))
+		log.Printf("error decoding cookie value when reading - %s", string(decoded))
 		return cookieData, errors.New("Unable to decode cookie data. Please sign back in.")
 	}
 	parts := strings.Split(string(decoded), "::hmac::")
@@ -1074,13 +1104,14 @@ func readAuthCookie(r *http.Request) (StravaOAuthTokenResponse, error) {
 	return cookieData, nil
 }
 
-// mwAuthendicated prevents not authenticated users from proceeding.
+// mwAuthendicated prevents non-authenticated users from proceeding.
 // Authentication is based on the existance of a non-tampered with cookie.
 // The cookie is signed via HMAC and verified before letting the request through
 // to the next handler. Logic is nearly identical to readAuthCookie.
 func mwAuthenticated(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cookie, err := r.Cookie(AuthCookieName)
+
 		if err != nil {
 			log.Printf("error obtaining auth cookie - %v", err)
 			authErrHandler(w, r, "Unable to read cookie data. Please sign back in.")
@@ -1089,7 +1120,7 @@ func mwAuthenticated(next http.Handler) http.Handler {
 
 		decoded, err := base64.StdEncoding.DecodeString(cookie.Value)
 		if err != nil {
-			log.Printf("error decoding cookie value - %v", decoded)
+			log.Printf("error decoding cookie value when authenticating - %s\n-- becomes --\n%s", cookie.Value, string(decoded))
 			authErrHandler(w, r, "Unable to decode cookie data. Please sign back in.")
 		}
 		parts := strings.Split(string(decoded), "::hmac::")
@@ -1099,6 +1130,7 @@ func mwAuthenticated(next http.Handler) http.Handler {
 			return
 		}
 		originalJSONToken := parts[0]
+		log.Printf("%+v", parts)
 		signedMac, err := base64.StdEncoding.DecodeString(parts[1])
 		if err != nil {
 			log.Printf("error base64 decoding passed in hmac value - %v", err)
@@ -1199,7 +1231,7 @@ func padBase64(s string) string {
 	return s + strings.Repeat("=", padding)
 }
 
-//Takes in an int and returns a string with thousands separators
+//Comma formats a number as a string with thousands separators
 func Comma(v int64) string {
 	sign := ""
 	if v < 0 {

@@ -15,7 +15,7 @@ import (
 	"time"
 )
 
-func TestAppHandler(t *testing.T) {
+func TestAppHandlerSuccess(t *testing.T) {
 	t.Log("given a valid cookie, html and a 200 response should return")
 
 	req, err := http.NewRequest("GET", "http://somedomain/app", nil)
@@ -30,7 +30,7 @@ func TestAppHandler(t *testing.T) {
 
 	t.Logf("appHandler:\ncode:%d\nheaders:%+v\nbody:%s", w.Code, w.HeaderMap, w.Body.String())
 
-	if !strings.Contains(w.Body.String(), "<html>") {
+	if !strings.Contains(w.Body.String(), "<html") {
 		t.Error("no html tag found in response body")
 	}
 
@@ -40,7 +40,7 @@ func TestAppHandler(t *testing.T) {
 }
 
 func TestAppHandlerMissingCookieErr(t *testing.T) {
-	t.Log("given a missing cookie, no html and a 301 response should return")
+	t.Log("given a missing cookie, no html and a 401 response should return")
 	log.SetOutput(ioutil.Discard)
 
 	req, err := http.NewRequest("GET", "http://somedomain/app", nil)
@@ -60,13 +60,13 @@ func TestAppHandlerMissingCookieErr(t *testing.T) {
 		t.Error("no html should be found in response body")
 	}
 
-	if got, want := w.Code, http.StatusMovedPermanently; got != want {
+	if got, want := w.Code, http.StatusUnauthorized; got != want {
 		t.Errorf("got status code %d, want %d", got, want)
 	}
 }
 
 func TestAppHandlerAlteredCookieErr(t *testing.T) {
-	t.Log("given a altered cookie, no html and a 301 response should return")
+	t.Log("given a altered cookie, no html and a 401 response should return")
 	log.SetOutput(ioutil.Discard)
 
 	req, err := http.NewRequest("GET", "http://somedomain/app", nil)
@@ -87,7 +87,7 @@ func TestAppHandlerAlteredCookieErr(t *testing.T) {
 		t.Error("no html should be found in response body")
 	}
 
-	if got, want := w.Code, http.StatusMovedPermanently; got != want {
+	if got, want := w.Code, http.StatusUnauthorized; got != want {
 		t.Errorf("got status code %d, want %d", got, want)
 	}
 }
@@ -111,7 +111,7 @@ func genTestAuthCookie() *http.Cookie {
 
 	cookie := &http.Cookie{}
 	cookie.Name = AuthCookieName
-	cookie.Value = base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s%s%s", string(rawBody), "::hmac::", string(mac.Sum(nil)))))
+	cookie.Value = padBase64(base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s%s%s", string(rawBody), "::hmac::", base64.StdEncoding.EncodeToString((mac.Sum(nil)))))))
 	cookie.Expires = time.Now().Add(COOKIE_EXPIRY)
 
 	return cookie
@@ -123,7 +123,7 @@ type fakeHTTPServer struct{}
 
 func (f fakeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {}
 
-func TestMiddleWareAuth(t *testing.T) {
+func TestMiddleWareAuthSuccess(t *testing.T) {
 	t.Log("given a valid cookie, the next handler should be called")
 	log.SetOutput(ioutil.Discard)
 
@@ -147,7 +147,7 @@ func TestMiddleWareAuth(t *testing.T) {
 }
 
 func TestMiddleWareAuthMissingCookie(t *testing.T) {
-	t.Log("given a valid cookie, the next handler should be called")
+	t.Log("given a missing cookie, a 401 should be returned")
 	log.SetOutput(ioutil.Discard)
 
 	w := httptest.NewRecorder()
@@ -165,13 +165,13 @@ func TestMiddleWareAuthMissingCookie(t *testing.T) {
 
 	t.Logf("appHandler:\ncode:%d\nheaders:%+v\nbody:%s", w.Code, w.HeaderMap, w.Body.String())
 
-	if got, want := w.Code, http.StatusMovedPermanently; got != want {
+	if got, want := w.Code, http.StatusUnauthorized; got != want {
 		t.Errorf("got response code %d, want %d", got, want)
 	}
 }
 
 func TestMiddleWareAuthAlteredCookie(t *testing.T) {
-	t.Log("given a valid cookie, the next handler should be called")
+	t.Log("given an altered cookie, a 401 should be returned")
 	log.SetOutput(ioutil.Discard)
 
 	w := httptest.NewRecorder()
@@ -181,7 +181,7 @@ func TestMiddleWareAuthAlteredCookie(t *testing.T) {
 	}
 
 	cookie := genTestAuthCookie()
-	cookie.Value = "altered" + cookie.Value
+	cookie.Value = "altered-" + cookie.Value
 	req.AddCookie(cookie)
 
 	nextHandler := fakeHTTPServer{}
@@ -190,7 +190,32 @@ func TestMiddleWareAuthAlteredCookie(t *testing.T) {
 
 	t.Logf("appHandler:\ncode:%d\nheaders:%+v\nbody:%s", w.Code, w.HeaderMap, w.Body.String())
 
-	if got, want := w.Code, http.StatusMovedPermanently; got != want {
+	if got, want := w.Code, http.StatusUnauthorized; got != want {
 		t.Errorf("got response code %d, want %d", got, want)
+	}
+}
+
+func TestComma(t *testing.T) {
+	var testCases = []struct {
+		N int64
+		S string
+	}{
+		{N: 1, S: "1"},
+		{N: 10, S: "10"},
+		{N: 100, S: "100"},
+		{N: 1000, S: "1,000"},
+		{N: 10000, S: "10,000"},
+		{N: 100000, S: "100,000"},
+		{N: 1000000, S: "1,000,000"},
+		{N: 10000000, S: "10,000,000"},
+		{N: 100000000, S: "100,000,000"},
+		{N: 1000000000, S: "1,000,000,000"},
+		{N: 9223372036854775807, S: "9,223,372,036,854,775,807"},
+	}
+
+	for _, tc := range testCases {
+		if got, want := Comma(tc.N), tc.S; got != want {
+			t.Errorf("got %q, want %q for %d", got, want, tc.N)
+		}
 	}
 }
