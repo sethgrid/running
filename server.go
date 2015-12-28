@@ -509,7 +509,7 @@ type EventTotal struct {
 // getEventTotal returns running totals since a given start date for the entire event
 func getEventTotal(start time.Time) (EventTotal, error) {
 	var eventTotal EventTotal
-	activitiesQuery := "select count(distinct users.ID) as participants, sum(ifnull(Distance,0.0)) as metersrun, sum(ifnull(Elevation,0.0)) as metersgained from users left join activities on users.id = activities.user_id where start_date > ?"
+	activitiesQuery := "select count(distinct users.ID) as participants, sum(ifnull(Distance,0.0)) as metersrun, sum(ifnull(Elevation,0.0)) as metersgained from users left join activities on users.id = activities.user_id and start_date > ?"
 	var participants int
 	var metersrun float32
 	var metersgained float32
@@ -533,11 +533,12 @@ type LeaderboardEntry struct {
 	MilesRun   string `json:"milesrun"`
 	FeetGained string `json:"feetgained"`
 	DaysRun    int    `json:"daysrun"`
+	AthleteURL string `json:"athleteurl"`
 }
 
 func getLeaderboardData(start time.Time) ([]LeaderboardEntry, error) {
 	var leaderboardData []LeaderboardEntry
-	leaderboardQuery := "select users.strava_id, users.firstname, users.lastname, count(distinct activities.start_date) as daysrun, sum(ifnull(Distance,0.0)) as metersrun, sum(ifnull(Elevation,0.0)) as metersgained FROM users inner join activities on users.id = activities.user_id where start_date > ? group by users.strava_id"
+	leaderboardQuery := "select users.strava_id, users.firstname, users.lastname, count(distinct date(activities.start_date)) as daysrun, sum(ifnull(Distance,0.0)) as metersrun, sum(ifnull(Elevation,0.0)) as metersgained FROM users left join activities on users.id = activities.user_id and start_date > ? group by users.strava_id"
 	var firstname, lastname string
 	var metersrun, metersgained float32
 	var daysrun, strava_id int
@@ -559,6 +560,7 @@ func getLeaderboardData(start time.Time) ([]LeaderboardEntry, error) {
 		e.FeetGained = Comma(int64(metersgained * 3.28084))
 		e.DaysRun = daysrun
 		e.FullName = firstname + " " + lastname
+		e.AthleteURL = "<a href='https://www.strava.com/athletes/" + strconv.Itoa(strava_id) + "' target='_blank'>" + firstname + " " + lastname + "</a>"
 		leaderboardData = append(leaderboardData, e)
 	}
 	return leaderboardData, nil
@@ -784,6 +786,7 @@ func tokenHandler(w http.ResponseWriter, r *http.Request) {
 		//	w.WriteHeader(301)
 		//	w.Write([]byte("Redirecting to /setup..."))
 		//}
+		activityUpdator(-1)
 		log.Printf("forwarding request to /register for part 2")
 		w.Header().Set("Location", "/register")
 		w.WriteHeader(http.StatusTemporaryRedirect)
@@ -800,6 +803,7 @@ func tokenHandler(w http.ResponseWriter, r *http.Request) {
 // that our system wants about the signup if succuessful
 func crowdRiseSignupHandler(w http.ResponseWriter, r *http.Request, email string, firstname string, lastname string) {
 	b, err := ioutil.ReadAll(r.Body)
+	log.Printf("Inside the signup handler")
 	if err != nil {
 		log.Printf("issue reading signup body - %v", err)
 		errJSONHandler(w, r, http.StatusInternalServerError, "internal error reading the signup body")
@@ -881,6 +885,113 @@ func crowdRiseSignupHandler(w http.ResponseWriter, r *http.Request, email string
 	w.Write(data)
 }
 
+// crowdRiseNewEventHandler is invoked in the reverse proxy and captures important details
+// that our system wants about the signup if succuessful
+func crowdRiseNewEventTeamHandler(w http.ResponseWriter, r *http.Request, firstname string, lastname string, crowdriseUsername string, ein string) {
+	//Check to make sure the user doesn't already have a team
+	authParts := strings.Split(r.Header.Get("Authorization"), " ")
+	if len(authParts) != 2 {
+		errJSONHandler(w, r, http.StatusBadRequest, "unable to get authorization header bearer token")
+		return
+	}
+	passedInToken := authParts[1]
+
+	var crowdRiseTeamName sql.NullString
+	err := DB.QueryRow("select crowdrise_team_id from users where oauth_token=? limit 1", passedInToken).Scan(&crowdRiseTeamName)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			errJSONHandler(w, r, http.StatusBadRequest, "invalid token, no associated user found")
+			return
+		}
+		log.Println("error with database validating token for reverse proxy")
+		errJSONHandler(w, r, http.StatusBadRequest, "internal database error")
+		return
+	}
+
+	if crowdRiseTeamName.String != "" {
+		log.Println("the user already has a crowdrise team")
+		errJSONHandler(w, r, http.StatusBadRequest, "the user already has a crowdrise team")
+		return
+	}
+
+	b, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		log.Printf("issue reading signup body - %v", err)
+		errJSONHandler(w, r, http.StatusInternalServerError, "internal error reading the signup body")
+		return
+	}
+	teamName := "300 Days of Run - " + firstname + " " + lastname
+	b = append(b, []byte(fmt.Sprintf("&api_key=%s&api_secret=%s&team_name=%s&charity_ein=%s&event_username=300DaysofRun&organizer_username=%s", CROWDRISE_API_KEY, CROWDRISE_API_SECRET, teamName, ein, crowdriseUsername))...)
+	log.Printf("changing body to %s", b)
+	r.Body = ioutil.NopCloser(bytes.NewBuffer(b))
+	r.ContentLength = int64(len(b))
+
+	resp, err := http.Post(CROWDRISE_BASE_URL+"/api/create_event_team", "application/x-www-form-urlencoded", bytes.NewBuffer(b))
+	log.Printf("Postd request. Response: %v", resp)
+	if err != nil {
+		log.Printf("error adding user to event - %q", err.Error())
+		errJSONHandler(w, r, http.StatusInternalServerError, "error adding user to event")
+		return
+	}
+	defer resp.Body.Close()
+
+	data, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		log.Printf("error reading response body from event add request - %q", err.Error())
+		errJSONHandler(w, r, http.StatusInternalServerError, "error reading response from crowdrise")
+		return
+	}
+
+	if resp.StatusCode > 300 {
+		log.Printf("unexpected response from crowdrise event add: %s", data)
+		errJSONHandler(w, r, http.StatusInternalServerError, "unexpected result from crowdrise")
+		return
+	}
+
+	var createTeamResponse struct {
+		Status string `json:"status"`
+		Result []struct {
+			TeamCreated       bool   `json:"team_created"`
+			URL          string `json:"url"`
+			PrivateURL            string `json:"private_url"`
+			TeamUsername string `json:"team_username"`
+			TeamID			int `json:"team_id"`
+			ErrorID           int `json:"error_id"`
+			Error             string `json:"error"`
+		} `json:"result"`
+	}
+	err = json.Unmarshal(data, &createTeamResponse)
+	if err != nil {
+		log.Printf("error unmarshalling create team response for %q: %q", string(data), err.Error())
+		errJSONHandler(w, r, http.StatusInternalServerError, "unable to parse result from crowdrise create team ")
+		return
+	}
+
+	// avoid panics for out of bounds index access below
+	if len(createTeamResponse.Result) == 0 {
+		log.Printf("error - crowdrise did not return data in result key - %s", string(data))
+		errJSONHandler(w, r, http.StatusInternalServerError, "crowdrise did not return data in the result key")
+		return
+	}
+
+	//If the user already exists, that's fine, we want to store the user's info anyway
+	if !createTeamResponse.Result[0].TeamCreated {
+		log.Printf("error - team not created - %s", string(data))
+		errJSONHandler(w, r, http.StatusInternalServerError, fmt.Sprintf("crowdrise did not create the team - %s", createTeamResponse.Result[0].Error))
+		return
+	}
+
+	_, err = DB.Exec("update users set crowdrise_team_username=?, crowdrise_team_id=?, crowdrise_private_url=?, crowdrise_public_url=? where oauth_token=? limit 1", createTeamResponse.Result[0].TeamUsername, createTeamResponse.Result[0].TeamID, createTeamResponse.Result[0].PrivateURL, createTeamResponse.Result[0].URL, passedInToken)
+	if err != nil {
+		log.Printf("error updating user record with crowdrise team information - %q", err.Error())
+		errJSONHandler(w, r, http.StatusInternalServerError, "internal storage error saving crowdrise information")
+		return
+	}
+
+	// pass the data back to the front end
+	w.Write(data)
+}
+
 // crowdRiseReverseProxyHandler is a reverse proxy that appends the api user and token to a request and forwards it.
 // use case: the user is logged in and the js frontend is making a request for
 // data to crowdRise. Validate the email/oauth_token combo exists in the db
@@ -894,8 +1005,8 @@ func crowdRiseReverseProxyHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	passedInToken := parts[1]
 
-	var email, firstname, lastname string
-	err := DB.QueryRow("select email, firstname, lastname from users where oauth_token=? limit 1", passedInToken).Scan(&email, &firstname, &lastname)
+	var email, firstname, lastname, crowdriseUsername sql.NullString
+	err := DB.QueryRow("select email, firstname, lastname, crowdrise_username from users where oauth_token=? limit 1", passedInToken).Scan(&email, &firstname, &lastname, &crowdriseUsername)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			errJSONHandler(w, r, http.StatusBadRequest, "invalid token, no associated user found")
@@ -916,9 +1027,12 @@ func crowdRiseReverseProxyHandler(w http.ResponseWriter, r *http.Request) {
 	case "api/check_if_user_exists":
 	case "api/heartbeat":
 	case "api/signup":
-		crowdRiseSignupHandler(w, r, email, firstname, lastname)
+		crowdRiseSignupHandler(w, r, email.String, firstname.String, lastname.String)
 		return
 	case "api/url_data":
+	case "api/create_event_team":
+		crowdRiseNewEventTeamHandler(w, r, firstname.String, lastname.String, crowdriseUsername.String, r.URL.Query().Get("ein"))
+		return
 	case "api/charity_basic_search":
 		values := r.URL.Query()
 		values.Add("api_key", CROWDRISE_API_KEY)
@@ -1024,6 +1138,7 @@ func StravaOAuthTokenEndpoint(code string) (StravaOAuthTokenResponse, []byte, er
 
 // appHandler presents the app.html template and should be behind the mwAuthenticated middleware
 func appHandler(w http.ResponseWriter, r *http.Request) {
+	newUserFlag := r.URL.Query().Get("new_user")
 	templates := []string{"templates/base.html", "templates/app.html"}
 	t, err := template.ParseFiles(templates...)
 	if err != nil {
@@ -1039,10 +1154,30 @@ func appHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var crowdRisePrivateURL, crowdRisePublicURL, firstname sql.NullString
+	err = DB.QueryRow("select firstname, crowdrise_private_url, crowdrise_public_url from users where oauth_token=? limit 1", cookieData.AccessToken).Scan(&firstname, &crowdRisePrivateURL, &crowdRisePublicURL)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			errJSONHandler(w, r, http.StatusBadRequest, "invalid token, no associated user found")
+			return
+		}
+		log.Println("error with database validating token for reverse proxy")
+		errJSONHandler(w, r, http.StatusBadRequest, "internal database error")
+		return
+	}
+
 	data := struct {
 		Email string
+		NewUser string
+		FirstName string
+		PublicURL string
+		PrivateURL string
 	}{
 		Email: cookieData.StravaAthlete.Email,
+		NewUser: newUserFlag,
+		FirstName: firstname.String,
+		PublicURL: crowdRisePublicURL.String,
+		PrivateURL: crowdRisePrivateURL.String,
 	}
 
 	err = t.Execute(w, data)

@@ -5,12 +5,27 @@ This page will only display after the user has been authenticated
 
 Variables:
  - {{.Email}}
+ - {{.NewUser}}
+ - {{.FirstName}}
+ - {{.PublicURL}}
+ - {{.PrivateURL}}
 -->
 {{ define "content" }}
 <div class="container-fluid">
 	<div class="row">
-	  <p>Welcome {{.Email}}, you're logged in via Strava. Filling out this page is on the to do list.</p>
-	  <script src="assets/example_access.js"></script>
+		<div class="col-sm-6 col-sm-offset-3">
+			<h1>Your 300 Days of Run Summary Page</h1>
+			<p class="larger-text">
+				Hi there, {{.FirstName}}! You're all set up with 300 Days of Run. What's next? You'll probably want to personalize your CrowdRise fundraising page by explaining why you've selected your chosen charity, adding pictures, and things like that. To take care of all that, <a href="{{.PrivateURL}}" target="_blank">visit your private Crowdrise page</a>.
+			</p>
+			<p class="larger-text">
+				Next, you'll probably want to start fundraising. Share this link:
+				<div class="well">
+					{{.PublicURL}}
+				</div>
+				with your friends by email and social media so they can donate to your charity. We'll keep track of your fundraising and your running on our <a href="/#leaderboard-section" target="_blank">leaderboard</a>, so be sure to check on your progress as the year goes on.
+			</p>
+		</div>
 	</div>
 </div>
 {{ end }}

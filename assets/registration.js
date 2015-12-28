@@ -1,9 +1,3 @@
-// grab the token data that is present on all authenticated pages
-var AUTH_COOKIE = "auth_cookie";
-var USER_EMAIL = "";
-var tokenData = JSON.parse(atob($.cookie(AUTH_COOKIE)).split("::hmac::")[0]);
-console.log("tokenData:",tokenData)
-
 // call the backend to get user data
 var result = $.ajax({
     url: "user/"+tokenData.athlete.id+"/summary",
@@ -18,7 +12,7 @@ var result = $.ajax({
 
 function CrowdRiseCreateNewUserResult(data){
 	console.log('create user result:', data);
-    $("#result").replaceWith("<h4>Crowdrise signup complete. After this, the user will be taken to a page to set up their team. That part's not done yet, so just <a href='/'>Click here</a> to go back to the homepage for now.</h4>");
+    window.location.assign("http://300daysofrun.com/setup");
 }
 
 function crowdriseSetup(form){

@@ -23,14 +23,31 @@
         </div>
         <div class="collapse navbar-collapse">
           <ul class="nav navbar-nav pull-right">
-            <li><a href="/about">About</a></li>
+            <li><a href="/#about">About</a></li>
             <li><a href="/#leaderboard-section">Leaderboard</a></li>
             <li><a href="/rules">Rules & FAQ</a></li>
-            <li><a href="/register">Register</a></li>
+            <li id="register-login"></li>
           </ul>
         </div>
       </div>
     </nav>
       {{ template "content" . }}
+    <footer id="footer" class="footer text-center">
+      <a href="/terms">Terms of Service</a> | <a href="/privacy">Privacy Policy</a><br />
+      &copy; 2015, 300 Days, Inc.
+    </footer>
   </body>
+  <script>
+  var AUTH_COOKIE = "auth_cookie";
+  var USER_EMAIL = "";
+  var CURRENT_PAGE = 1;
+  if (typeof $.cookie(AUTH_COOKIE) === 'undefined'){
+    //No cookie
+    $('#register-login').empty().append('<a href="/register">Register</a>');
+  } else {
+    var tokenData = JSON.parse(atob($.cookie(AUTH_COOKIE)).split("::hmac::")[0]);
+    console.log("tokenData:",tokenData);
+    $('#register-login').empty().append('<a href="/app">My Account</a>');
+  }
+  </script>
 </html>
