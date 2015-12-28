@@ -103,6 +103,20 @@ CREATE TABLE `activities` (
   KEY `strava_id` (`strava_id`),
   UNIQUE (`strava_id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8;
+
+CREATE TABLE `teams` (
+  `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
+  `team_id` int(11) unsigned NOT NULL,
+  `total_donations_online_amount` float DEFAULT '0',
+  `total_donations_offline_amount` float DEFAULT '0',
+  `total_donations_online_count` float DEFAULT '0',
+  `total_donations_offline_count` float DEFAULT '0',
+  `charity_ein` varchar(20),
+  `charity_name` varchar(500),
+  PRIMARY KEY (`id`),
+  KEY `team_id` (`team_id`),
+  UNIQUE (`team_id`)
+) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8;
 ```
 
 ## TODO:

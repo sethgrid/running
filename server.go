@@ -20,6 +20,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"math"
 
 	"github.com/facebookgo/flagenv"
 	_ "github.com/go-sql-driver/mysql"
@@ -164,12 +165,14 @@ func main() {
 	go func() {
 		// do
 		activityUpdator(-1)
+		eventTotalsUpdator()
 		// while
 		for {
 			select {
 			case <-time.Tick(POLL_INTERVAL):
-				log.Println("running scheduled activityUpdator")
+				log.Println("running scheduled activityUpdator and eventTotalsUpdator")
 				activityUpdator(-1)
+				eventTotalsUpdator()
 			}
 		}
 	}()
@@ -260,6 +263,82 @@ func activityUpdator(limitToUserID int) {
 		log.Printf("error post scan for oauth token - %v", err)
 	}
 	log.Println("activityUpdator complete")
+}
+
+func eventTotalsUpdator() {
+	log.Println("Running event totals update...")
+	// Get the results from Crowdrise by calling a function
+	cli := &http.Client{}
+
+	type CrowdriseTeamData []struct {
+		TeamID string `json:"team_id"`
+		TeamName string `json:"team_name"`
+		TeamUsername string `json:"team_username"`
+		DonationAmountOnline string `json:"total_donations_online_amount"`
+		DonationAmountOffline string `json:"total_donations_offline_amount"`
+		DonationCountOnline string `json:"total_donations_online_count"`
+		DonationCountOffline string `json:"total_donations_offline_count"`
+		CharityEIN string `json:"charity_ein"`
+		TeamURL string `json:"team_url"`
+		OfficialTeam bool `json:"official_team"`
+		HiddenFromEvent bool `json:"hidden_from_event"`
+		CharityName string `json:"charity_name"`
+		CharityURL string `json:"charity_url"`
+		TeamOrganizerFirstName string `json:"team_organizer_first_name"`
+		TeamOrganizerLastName string `json:"team_organizer_last_name"`
+		TeamOrganizerEmail string `json:"team_organizer_email"`
+		TeamOrganizerOrg string `json:"team_organizer_organization"`
+		TeamOrganizerID string `json:"team_organizer_id"`
+		FundraisingCommitment string `json:"fundraising_commitment"`
+		Goal string `json:"goal"`
+	}
+
+	type CrowdriseTeamResponse struct {
+		Status string `json:"status"`
+		Result []CrowdriseTeamData `json:"result"`
+	}
+	requestQuery := fmt.Sprintf("api_key=%s&api_token=%s", CROWDRISE_API_KEY, CROWDRISE_API_SECRET)
+	totals := func() CrowdriseTeamResponse {
+			var totals CrowdriseTeamResponse
+			req, err := http.NewRequest("GET", "https://www.crowdrise.com/api/get_event_teams/300DaysOfRun/?"+requestQuery, strings.NewReader(""))
+			if err != nil {
+				log.Printf("error setting up new request to crowdrise event totals - %v", err)
+				return totals
+			}
+			defer req.Body.Close()
+
+			resp, err := cli.Do(req)
+			if err != nil {
+				log.Printf("error getting response for crowdrise event totals - %v", err)
+				return totals
+			}
+			defer resp.Body.Close()
+			body, err := ioutil.ReadAll(resp.Body)
+			if err != nil {
+				log.Printf("error reading response body for crowdrise event totals - %v", err)
+				return totals
+			}
+			if resp.StatusCode > 300 {
+				log.Printf("unexected response getting crowdrise event totals - %s %s", gencurl.FromRequest(req), string(body))
+				return totals
+			}
+
+			err = json.Unmarshal(body, &totals)
+			if err != nil {
+				log.Printf("error marshalling crowdrise event totals  %s - %v", string(body), err)
+				return totals
+			}
+
+			return totals
+		}()
+	for _, total := range totals.Result[0] {
+		_, err := DB.Exec(`insert into teams (team_id, total_donations_online_amount, total_donations_offline_amount, total_donations_online_count, total_donations_offline_count, charity_ein, charity_name) values (?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE total_donations_online_amount=?, total_donations_offline_amount=?, total_donations_online_count=?, total_donations_offline_count=?, charity_ein=?, charity_name=?`, total.TeamID, total.DonationAmountOnline, total.DonationAmountOffline, total.DonationCountOnline, total.DonationCountOffline, total.CharityEIN, total.CharityName, total.DonationAmountOnline, total.DonationAmountOffline, total.DonationCountOnline, total.DonationCountOffline, total.CharityEIN, total.CharityName)
+		if err != nil {
+			log.Printf("error inserting into teams - %v", err)
+			continue
+		}
+	}
+	log.Println("eventTotalsUpdator complete")
 }
 
 // listAthleteActivities grabs activities from Strava
@@ -504,16 +583,16 @@ type EventTotal struct {
 	Participants       int    `json:"participants"`
 	MilesRun           string `json:"milesrun"`
 	ThousandFeetGained string `json:"thousandfeetgained"`
+	MoneyRaised 	   string `json:"moneyraised"`
 }
 
 // getEventTotal returns running totals since a given start date for the entire event
 func getEventTotal(start time.Time) (EventTotal, error) {
 	var eventTotal EventTotal
-	activitiesQuery := "select count(distinct users.ID) as participants, sum(ifnull(Distance,0.0)) as metersrun, sum(ifnull(Elevation,0.0)) as metersgained from users left join activities on users.id = activities.user_id and start_date > ?"
+	activitiesQuery := "select count(distinct users.ID) as participants, sum(ifnull(Distance,0.0)) as metersrun, sum(ifnull(Elevation,0.0)) as metersgained, (sum(ifnull(total_donations_online_amount,0)) + sum(ifnull(total_donations_offline_amount,0))) as moneyraised from users left join activities on users.id = activities.user_id and start_date > ? left join teams on teams.team_id = users.crowdrise_team_id"
 	var participants int
-	var metersrun float32
-	var metersgained float32
-	err := DB.QueryRow(activitiesQuery, start.Format(MysqlDateFormat)).Scan(&participants, &metersrun, &metersgained)
+	var metersrun, metersgained, moneyraised float64
+	err := DB.QueryRow(activitiesQuery, start.Format(MysqlDateFormat)).Scan(&participants, &metersrun, &metersgained, &moneyraised)
 	if err != nil {
 		log.Printf("error getting event totals from database - %v", err)
 		return eventTotal, errors.New(ErrDB)
@@ -522,6 +601,7 @@ func getEventTotal(start time.Time) (EventTotal, error) {
 	eventTotal.Participants = participants
 	eventTotal.MilesRun = Comma(int64(metersrun / 1609.34))
 	eventTotal.ThousandFeetGained = Comma(int64(metersgained * 3.28084 / 1000))
+	eventTotal.MoneyRaised = "$" + Comma(int64(math.Floor(moneyraised + .5)))
 
 	return eventTotal, nil
 }
@@ -534,13 +614,14 @@ type LeaderboardEntry struct {
 	FeetGained string `json:"feetgained"`
 	DaysRun    int    `json:"daysrun"`
 	AthleteURL string `json:"athleteurl"`
+	MoneyRaised string `json:"moneyraised"`
 }
 
 func getLeaderboardData(start time.Time) ([]LeaderboardEntry, error) {
 	var leaderboardData []LeaderboardEntry
-	leaderboardQuery := "select users.strava_id, users.firstname, users.lastname, count(distinct date(activities.start_date)) as daysrun, sum(ifnull(Distance,0.0)) as metersrun, sum(ifnull(Elevation,0.0)) as metersgained FROM users left join activities on users.id = activities.user_id and start_date > ? group by users.strava_id"
+	leaderboardQuery := "select users.strava_id, users.firstname, users.lastname, count(distinct date(activities.start_date)) as daysrun, sum(ifnull(Distance,0.0)) as metersrun, sum(ifnull(Elevation,0.0)) as metersgained, (sum(ifnull(total_donations_online_amount,0)) + sum(ifnull(total_donations_offline_amount,0))) as moneyraised FROM users left join activities on users.id = activities.user_id and start_date > ? left join teams on teams.team_id = users.crowdrise_team_id group by users.strava_id"
 	var firstname, lastname string
-	var metersrun, metersgained float32
+	var metersrun, metersgained, moneyraised float64
 	var daysrun, strava_id int
 	rows, err := DB.Query(leaderboardQuery, start.Format(MysqlDateFormat))
 	if err != nil {
@@ -550,7 +631,7 @@ func getLeaderboardData(start time.Time) ([]LeaderboardEntry, error) {
 	defer rows.Close()
 
 	for rows.Next() {
-		if err := rows.Scan(&strava_id, &firstname, &lastname, &daysrun, &metersrun, &metersgained); err != nil {
+		if err := rows.Scan(&strava_id, &firstname, &lastname, &daysrun, &metersrun, &metersgained, &moneyraised); err != nil {
 			log.Printf("error scanning for leaderboard data - %v", err)
 			continue
 		}
@@ -561,6 +642,7 @@ func getLeaderboardData(start time.Time) ([]LeaderboardEntry, error) {
 		e.DaysRun = daysrun
 		e.FullName = firstname + " " + lastname
 		e.AthleteURL = "<a href='https://www.strava.com/athletes/" + strconv.Itoa(strava_id) + "' target='_blank'>" + firstname + " " + lastname + "</a>"
+		e.MoneyRaised = "$" + Comma(int64(math.Floor(moneyraised + .5)))
 		leaderboardData = append(leaderboardData, e)
 	}
 	return leaderboardData, nil
@@ -574,7 +656,7 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
 		log.Println("unable to parse index.html for rendering - %v", err)
 		errHandler(w, r, http.StatusInternalServerError, "internal error parsing templates")
 	}
-	tm := time.Date(2015, time.January, 1, 0, 0, 0, 0, time.UTC)
+	tm := time.Date(2016, time.January, 1, 0, 0, 0, 0, time.UTC)
 	totals, err := getEventTotal(tm.Local())
 	leaderboardData, err := getLeaderboardData(tm.Local())
 	data := struct {
@@ -584,6 +666,7 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
 		MilesRun           string
 		ThousandFeetGained string
 		MetersGained       float32
+		MoneyRaised        string
 		LeaderboardData    []LeaderboardEntry
 	}{
 		StravaClientID:     STRAVA_CLIENT_ID,
@@ -591,6 +674,7 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
 		MilesRun:           totals.MilesRun,
 		ThousandFeetGained: totals.ThousandFeetGained,
 		LeaderboardData:    leaderboardData,
+		MoneyRaised: 		totals.MoneyRaised,
 	}
 
 	err = t.Execute(w, data)
@@ -695,11 +779,19 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 	templates := []string{"templates/base.html", "templates/register.html"}
 
 	//Check to see whether the user is cookied
-	_, err := readAuthCookie(r)
+	cookieData, err := readAuthCookie(r)
 	if err != nil {
 		log.Println("user not cookied, showing full registration page")
 		templates = append(templates, "templates/register-all.html")
 	} else {
+		//Check to see if the user already has a crowdrise username, and if so, fowrard them to /setup
+		var crowdriseID sql.NullString
+		err = DB.QueryRow("select crowdrise_id from users where oauth_token=? limit 1", cookieData.AccessToken).Scan(&crowdriseID)
+		if crowdriseID.String != "" {
+			w.Header().Set("Location", "/setup")
+			w.WriteHeader(http.StatusTemporaryRedirect)
+			w.Write([]byte("Redirecting to setup..."))
+		}
 		log.Println("user cookied, showing step 2 page only")
 		templates = append(templates, "templates/register-step-2-only.html")
 	}
@@ -1205,6 +1297,15 @@ func setupHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	//Check to see if the user already has a crowdrise team, and if so, fowrard them to /app
+	var crowdriseTeamID sql.NullString
+	err = DB.QueryRow("select crowdrise_team_id from users where oauth_token=? limit 1", cookieData.AccessToken).Scan(&crowdriseTeamID)
+	if crowdriseTeamID.String != "" {
+		w.Header().Set("Location", "/app")
+		w.WriteHeader(http.StatusTemporaryRedirect)
+		w.Write([]byte("Redirecting to app..."))
+	}
+
 	data := struct {
 		Email     string
 		FirstName string
@@ -1232,7 +1333,7 @@ func authErrHandler(w http.ResponseWriter, r *http.Request, msg string) {
 	http.SetCookie(w, &cookie)
 
 	w.Header().Set("Location", "/?message="+url.QueryEscape(msg))
-	w.WriteHeader(http.StatusUnauthorized)
+	w.WriteHeader(http.StatusTemporaryRedirect)
 	w.Write([]byte("Redirecting to index..."))
 }
 

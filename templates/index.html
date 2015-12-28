@@ -8,6 +8,7 @@ Variables:
  - {{.MetersRun}}
  - {{.MilesRun}}
  - {{.MetersGained}}
+ - {{.MoneyRaised}}
  - {{.LeaderboardData}}
 -->
 {{ define "content" }}
@@ -46,17 +47,26 @@ Variables:
       </div>
     </div>
     <div class="row text-center">
-      <strong>How does it work?</strong>
+      <h2>How does it work?</h2>
     </div>
     <div class="row">
       <div class="col-xs-12 col-md-4">
-        1 – <a href="/register">Sign up for the challenge</a> using your Strava Account (Don’t have a Strava account? Click to get your FREE account)
+        <div class="about-container text-center larger-text">
+          <img src="/assets/images/strava-logo.png" class="img-responsive" />
+          <a href="/register">Sign up for the challenge</a> using your Strava Account (Don’t have a Strava account? Click to get your FREE account)
+        </div>
       </div>
       <div class="col-xs-12 col-md-4">
-        2 – Set up your fundraising account to raise money for YOUR charity including setting your personal target. (Also totally free)
+        <div class="about-container text-center larger-text">
+          <img src="/assets/images/crowdrise-logo.png" class="img-responsive" />
+          Set up your fundraising account to raise money for YOUR charity including setting your personal target. (Also totally free)
+        </div>
       </div>
       <div class="col-xs-12 col-md-4">
-        3 – Run 300+ Days in 2016!
+        <div class="about-container text-center larger-text">
+          <img src="/assets/images/run-logo.jpg" class="img-responsive" />
+          Run 300+ Days in 2016!
+        </div>
       </div>
     </div>
     <div class="row text-center">
@@ -90,7 +100,7 @@ Variables:
         <p>Thousand Feet Gained</p>
       </div>
       <div class="col-sm-3 col-xs-6">
-        <h1>$0</h1>
+        <h1>{{.MoneyRaised}}</h1>
         <p>Money Raised</p>
       </div>
     </div>
@@ -106,9 +116,10 @@ Variables:
         <table id="leaderboard" style="width:100%">
           <thead>
             <th>Runner Name</th>
+            <th>Days of Run</th>
             <th>Miles Run</th>
             <th>Feet Gained</th>
-            <th>Days of Run</th>
+            <th>Money Raised</th>
           </thead>
           <tbody>
           </tbody>
@@ -119,12 +130,13 @@ Variables:
 </div>
 <!-- /fourth section -->
 
-<!-- fifth section -->
-<div id="services" class="pad-section">
+<!-- fifth section - social share buttons -->
+<div id="social" class="pad-section">
   <div class="container">
     <div class="row">
-      <div class="col-sm-12 text-center">
-
+      <div class="col-sm-12 text-center social">
+        <div class="fb-share-button" data-href="http://300daysofrun.com" data-layout="button"></div>
+        <a class="twitter-share-button" href="https://twitter.com/intent/tweet?text=Raise%20money%20for%20charity%20with%20the%20ultimate%20year-long%20running%20challenge!" data-url="http://300daysofrun.com" data-hashtags="300daysofrun">Tweet</a>
       </div>
     </div>
   </div>
@@ -142,11 +154,12 @@ $(document).ready(function(){
       data: {{.LeaderboardData}},
       columns: [
         { data: 'athleteurl' },
+        { data: 'daysrun' },
         { data: 'milesrun' },
         { data: 'feetgained' },
-        { data: 'daysrun' }
+        { data: 'moneyraised' }
       ],
-      "order": [[ 3, "desc" ]]
+      "order": [[ 1, "desc" ]]
     });
     $('#leaderboard')
       .removeClass( 'display' )

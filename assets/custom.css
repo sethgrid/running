@@ -42,9 +42,6 @@ body {
   background-size: cover;
 }
 
-#about {
-}
-
 #stats {
   background-color: #306d9f;
   color: #ffffff;
@@ -53,7 +50,7 @@ body {
 #leaderboard-section {
   background: url(http://static1.squarespace.com/static/5636de33e4b0ef5e7b46372a/t/5637ae42e4b03c8b27b6a4fd/1446489671400/shutterstock_162360983.jpg) no-repeat center center fixed; 
   display: table;
-  height: 800px;
+  height: auto;
   position: relative;
   width: 100%;
   -webkit-background-size: cover;
@@ -128,4 +125,20 @@ footer {
   width: 100%;
   margin-top: 5px;
   margin-bottom: 5px;
+}
+
+.well {
+  word-wrap: break-word;
+}
+
+.about-container {
+  border: 1px solid #D3D3D3;
+  border-radius: 3px;
+  padding: 15px;
+  margin-bottom: 5px;
+  margin-top: 5px;
+}
+
+.social {
+  line-height: 10px;
 }
