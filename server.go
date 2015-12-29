@@ -197,6 +197,7 @@ func main() {
 	r.Handle("/rules", mwLogRequest(http.HandlerFunc(rulesHandler)))
 	r.Handle("/privacy", mwLogRequest(http.HandlerFunc(privacyHandler)))
 	r.Handle("/waiver", mwLogRequest(http.HandlerFunc(waiverHandler)))
+	r.Handle(`/runners/{rest:[0-9]+}`, mwLogRequest(http.HandlerFunc(runnerProfileHandler)))
 
 	// authenticated HTML endpoints
 	r.Handle("/app", mwLogRequest(mwAuthenticated(http.HandlerFunc(appHandler))))
@@ -641,7 +642,7 @@ func getLeaderboardData(start time.Time) ([]LeaderboardEntry, error) {
 		e.FeetGained = Comma(int64(metersgained * 3.28084))
 		e.DaysRun = daysrun
 		e.FullName = firstname + " " + lastname
-		e.AthleteURL = "<a href='https://www.strava.com/athletes/" + strconv.Itoa(strava_id) + "' target='_blank'>" + firstname + " " + lastname + "</a>"
+		e.AthleteURL = "<a href='http://300daysofrun.com/runners/" + strconv.Itoa(strava_id) + "' target='_blank'>" + firstname + " " + lastname + "</a>"
 		e.MoneyRaised = "$" + Comma(int64(math.Floor(moneyraised + .5)))
 		leaderboardData = append(leaderboardData, e)
 	}
@@ -1228,6 +1229,64 @@ func StravaOAuthTokenEndpoint(code string) (StravaOAuthTokenResponse, []byte, er
 	return OAuthData, body, nil
 }
 
+// runnerProfileHandler responds to /runners/99999 where 99999 is a user ID. It presents
+// the profile.html template.
+func runnerProfileHandler(w http.ResponseWriter, r *http.Request) {
+	templates := []string{"templates/base.html", "templates/profile.html"}
+	userID, ok := mux.Vars(r)["rest"]
+	if !ok {
+		errJSONHandler(w, r, http.StatusBadRequest, "missing user ID")
+		return
+	}
+	t, err := template.ParseFiles(templates...)
+	if err != nil {
+		log.Println("unable to parse profile.html for rendering - %v", err)
+		errHandler(w, r, http.StatusInternalServerError, "internal error parsing profile template")
+		return
+	}
+	userIDInt, _ := strconv.Atoi(userID)
+	var stravaID, crowdRisePublicURL, firstname, lastname, crowdriseTeamID, daysrun sql.NullString
+	var metersrun, metersgained sql.NullFloat64
+	log.Println("User ID from URL: ", userID)
+	err = DB.QueryRow("select users.strava_id, firstname, lastname, crowdrise_public_url, crowdrise_team_id, count(distinct date(activities.start_date)) as daysrun, sum(ifnull(Distance,0.0)) as metersrun, sum(ifnull(Elevation,0.0)) as metersgained from users left join activities on users.id = activities.user_id and start_date >=? where users.strava_id=? group by users.strava_id, firstname, lastname, crowdrise_public_url, crowdrise_team_id", time.Date(2016, time.January, 1, 0, 0, 0, 0, time.UTC).Format(MysqlDateFormat), userIDInt).Scan(&stravaID, &firstname, &lastname, &crowdRisePublicURL, &crowdriseTeamID, &daysrun, &metersrun, &metersgained)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			errJSONHandler(w, r, http.StatusBadRequest, "invalid token, no associated user found")
+			return
+		}
+		log.Println("error with database getting user ID")
+		errJSONHandler(w, r, http.StatusBadRequest, "internal database error")
+		return
+	}
+
+	data := struct {
+		FirstName string
+		LastName string
+		PublicURL string
+		CrowdriseTeamID string
+		StravaID string
+		DaysRun string
+		MilesRun string
+		FeetGained string
+	}{
+		FirstName: firstname.String,
+		LastName: lastname.String,
+		PublicURL: crowdRisePublicURL.String,
+		CrowdriseTeamID: crowdriseTeamID.String,
+		StravaID: stravaID.String,
+		DaysRun: daysrun.String,
+		MilesRun: Comma(int64(float64(metersrun.Float64) / 1609.34)),
+		FeetGained: Comma(int64(float64(metersgained.Float64) * 3.28084)),
+	}
+
+	err = t.Execute(w, data)
+	if err != nil {
+		log.Printf("error executing template in runnerProfileHandler - %v", err)
+		errHandler(w, r, http.StatusInternalServerError, "internal error executing profile template")
+		return
+	}
+}
+
 // appHandler presents the app.html template and should be behind the mwAuthenticated middleware
 func appHandler(w http.ResponseWriter, r *http.Request) {
 	newUserFlag := r.URL.Query().Get("new_user")
@@ -1246,8 +1305,8 @@ func appHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var crowdRisePrivateURL, crowdRisePublicURL, firstname sql.NullString
-	err = DB.QueryRow("select firstname, crowdrise_private_url, crowdrise_public_url from users where oauth_token=? limit 1", cookieData.AccessToken).Scan(&firstname, &crowdRisePrivateURL, &crowdRisePublicURL)
+	var crowdRisePrivateURL, crowdRisePublicURL, firstname, crowdriseTeamID sql.NullString
+	err = DB.QueryRow("select firstname, crowdrise_private_url, crowdrise_public_url, crowdrise_team_id from users where oauth_token=? limit 1", cookieData.AccessToken).Scan(&firstname, &crowdRisePrivateURL, &crowdRisePublicURL, &crowdriseTeamID)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			errJSONHandler(w, r, http.StatusBadRequest, "invalid token, no associated user found")
@@ -1264,12 +1323,14 @@ func appHandler(w http.ResponseWriter, r *http.Request) {
 		FirstName string
 		PublicURL string
 		PrivateURL string
+		CrowdriseTeamID string
 	}{
 		Email: cookieData.StravaAthlete.Email,
 		NewUser: newUserFlag,
 		FirstName: firstname.String,
 		PublicURL: crowdRisePublicURL.String,
 		PrivateURL: crowdRisePrivateURL.String,
+		CrowdriseTeamID: crowdriseTeamID.String,
 	}
 
 	err = t.Execute(w, data)

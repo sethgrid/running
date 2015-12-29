@@ -5,7 +5,7 @@ html, body {
 }
 
 body {
-	padding-top: 50px;
+	padding-top: 50px !important;
 }
 
 /* padded section */
@@ -141,4 +141,33 @@ footer {
 
 .social {
   line-height: 10px;
+}
+
+#profile-header {
+  height: 200px;
+  background: url(http://300daysofrun.com/assets/images/profile-header.jpg); 
+  background-size contain;
+  background-position: center;
+  color: #fff;
+  position: relative;
+}
+
+#profile-text {
+  color: #fff;
+  text-rendering: optimizelegibility;
+  text-shadow: 0 0 6px rgba(0,0,0,1);
+  font-size: 3em; 
+  position: absolute;
+  bottom: 0px;
+}
+
+div[id^='crDonateWidget'] {
+  /* Firefox */
+  left: -moz-calc(50% - 150px);
+  /* WebKit */
+  left: -webkit-calc(50% - 150px);
+  /* Opera */
+  left: -o-calc(50% - 150px);
+  /* Standard */
+  left: calc(50% - 150px);
 }
