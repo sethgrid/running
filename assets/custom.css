@@ -171,3 +171,25 @@ div[id^='crDonateWidget'] {
   /* Standard */
   left: calc(50% - 150px);
 }
+
+.logo-image {
+  margin-top: -12px;
+  margin-right: 10px;
+}
+
+.alert {
+  margin-top: 15px;
+}
+
+.fa-facebook-square {
+  color: #46629E;
+}
+
+#custom-message-container {
+  display: none;
+  margin-top: 15px;
+}
+
+#custom-message-result {
+  margin-bottom: 3px;
+}

@@ -198,6 +198,7 @@ func main() {
 	r.Handle("/privacy", mwLogRequest(http.HandlerFunc(privacyHandler)))
 	r.Handle("/waiver", mwLogRequest(http.HandlerFunc(waiverHandler)))
 	r.Handle(`/runners/{rest:[0-9]+}`, mwLogRequest(http.HandlerFunc(runnerProfileHandler)))
+	r.Handle("/logout", mwLogRequest(http.HandlerFunc(logOutHandler)))
 
 	// authenticated HTML endpoints
 	r.Handle("/app", mwLogRequest(mwAuthenticated(http.HandlerFunc(appHandler))))
@@ -865,7 +866,7 @@ func tokenHandler(w http.ResponseWriter, r *http.Request) {
 	cookie.Name = AuthCookieName
 	cookie.Value = padBase64(base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s%s%s", string(rawBody), "::hmac::", base64.StdEncoding.EncodeToString((mac.Sum(nil)))))))
 	cookie.Expires = time.Now().Add(COOKIE_EXPIRY)
-
+	cookie.Domain = ".300daysofrun.com"
 	http.SetCookie(w, &cookie)
 	//Handle redirection based on state
 	//For new registrants, check for an existing crowdrise account and use it if present
@@ -885,10 +886,12 @@ func tokenHandler(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusTemporaryRedirect)
 		w.Write([]byte("Redirecting to /register..."))
 	} else {
-		log.Printf("forwarding request to /app")
-		w.Header().Set("Location", "/app")
+		//Actually, send these people to /register as well because it will collect people who abandoned the reg
+		//process and will auto-forward those who have completed it to /app
+		log.Printf("forwarding request to /register")
+		w.Header().Set("Location", "/register")
 		w.WriteHeader(http.StatusTemporaryRedirect)
-		w.Write([]byte("Redirecting to /app..."))
+		w.Write([]byte("Redirecting to /register..."))
 	}
 }
 
@@ -933,7 +936,7 @@ func crowdRiseSignupHandler(w http.ResponseWriter, r *http.Request, email string
 		Result []struct {
 			UserCreated       bool   `json:"user_created"`
 			Username          string `json:"username"`
-			UserID            string `json:"user_id"`
+			UserID            int `json:"user_id"`
 			CompleteSignupURL string `json:"complete_signup_url"`
 			ErrorID           string `json:"error_id"`
 			Error             string `json:"error"`
@@ -941,9 +944,25 @@ func crowdRiseSignupHandler(w http.ResponseWriter, r *http.Request, email string
 	}
 	err = json.Unmarshal(data, &signupResponse)
 	if err != nil {
-		log.Printf("error unmarshalling signup response for %q: %q", string(data), err.Error())
-		errJSONHandler(w, r, http.StatusInternalServerError, "unable to parse result from crowdrise signup")
-		return
+		//Try again with UserID as a string
+		_ = signupResponse
+		var signupResponse struct {
+			Status string `json:"status"`
+			Result []struct {
+				UserCreated       bool   `json:"user_created"`
+				Username          string `json:"username"`
+				UserID            string `json:"user_id"`
+				CompleteSignupURL string `json:"complete_signup_url"`
+				ErrorID           string `json:"error_id"`
+				Error             string `json:"error"`
+			} `json:"result"`
+		}
+		err = json.Unmarshal(data, &signupResponse)
+		if err != nil {
+			log.Printf("error unmarshalling signup response for %q: %q", string(data), err.Error())
+			errJSONHandler(w, r, http.StatusInternalServerError, "unable to parse result from crowdrise signup")
+			return
+		}
 	}
 
 	// avoid panics for out of bounds index access below
@@ -1053,10 +1072,24 @@ func crowdRiseNewEventTeamHandler(w http.ResponseWriter, r *http.Request, firstn
 			Error             string `json:"error"`
 		} `json:"result"`
 	}
+	var createTeamErrorResponse struct {
+		Status string `json:"status"`
+		Result []struct {
+			TeamCreated       bool   `json:"team_created"`
+			ErrorID           string `json:"error_id"`
+			Error             string `json:"error"`
+		} `json:"result"`
+	}
 	err = json.Unmarshal(data, &createTeamResponse)
 	if err != nil {
-		log.Printf("error unmarshalling create team response for %q: %q", string(data), err.Error())
-		errJSONHandler(w, r, http.StatusInternalServerError, "unable to parse result from crowdrise create team ")
+		err = json.Unmarshal(data, &createTeamErrorResponse)
+		if err != nil {
+			log.Printf("error unmarshalling create team response for %q: %q", string(data), err.Error())
+			errJSONHandler(w, r, http.StatusInternalServerError, "unable to parse result from crowdrise create team ")
+			return
+		}
+		//Something went wrong, the team was not created and doesn't already exist
+		w.Write(data)
 		return
 	}
 
@@ -1234,6 +1267,7 @@ func StravaOAuthTokenEndpoint(code string) (StravaOAuthTokenResponse, []byte, er
 func runnerProfileHandler(w http.ResponseWriter, r *http.Request) {
 	templates := []string{"templates/base.html", "templates/profile.html"}
 	userID, ok := mux.Vars(r)["rest"]
+	customMessage := r.URL.Query().Get("message")
 	if !ok {
 		errJSONHandler(w, r, http.StatusBadRequest, "missing user ID")
 		return
@@ -1268,6 +1302,7 @@ func runnerProfileHandler(w http.ResponseWriter, r *http.Request) {
 		DaysRun string
 		MilesRun string
 		FeetGained string
+		CustomMessage string
 	}{
 		FirstName: firstname.String,
 		LastName: lastname.String,
@@ -1277,6 +1312,7 @@ func runnerProfileHandler(w http.ResponseWriter, r *http.Request) {
 		DaysRun: daysrun.String,
 		MilesRun: Comma(int64(float64(metersrun.Float64) / 1609.34)),
 		FeetGained: Comma(int64(float64(metersgained.Float64) * 3.28084)),
+		CustomMessage: customMessage,
 	}
 
 	err = t.Execute(w, data)
@@ -1305,8 +1341,8 @@ func appHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var crowdRisePrivateURL, crowdRisePublicURL, firstname, crowdriseTeamID sql.NullString
-	err = DB.QueryRow("select firstname, crowdrise_private_url, crowdrise_public_url, crowdrise_team_id from users where oauth_token=? limit 1", cookieData.AccessToken).Scan(&firstname, &crowdRisePrivateURL, &crowdRisePublicURL, &crowdriseTeamID)
+	var crowdRisePrivateURL, crowdRisePublicURL, firstname, crowdriseTeamID, stravaID sql.NullString
+	err = DB.QueryRow("select firstname, crowdrise_private_url, crowdrise_public_url, crowdrise_team_id, strava_id from users where oauth_token=? limit 1", cookieData.AccessToken).Scan(&firstname, &crowdRisePrivateURL, &crowdRisePublicURL, &crowdriseTeamID, &stravaID)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			errJSONHandler(w, r, http.StatusBadRequest, "invalid token, no associated user found")
@@ -1317,6 +1353,13 @@ func appHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	//If they don't have a crowdrise team ID, send them to /register
+	if crowdriseTeamID.String == "" {
+		w.Header().Set("Location", "/register")
+		w.WriteHeader(http.StatusTemporaryRedirect)
+		w.Write([]byte("Redirecting to register..."))
+	}
+
 	data := struct {
 		Email string
 		NewUser string
@@ -1324,6 +1367,7 @@ func appHandler(w http.ResponseWriter, r *http.Request) {
 		PublicURL string
 		PrivateURL string
 		CrowdriseTeamID string
+		AthleteURL string
 	}{
 		Email: cookieData.StravaAthlete.Email,
 		NewUser: newUserFlag,
@@ -1331,6 +1375,7 @@ func appHandler(w http.ResponseWriter, r *http.Request) {
 		PublicURL: crowdRisePublicURL.String,
 		PrivateURL: crowdRisePrivateURL.String,
 		CrowdriseTeamID: crowdriseTeamID.String,
+		AthleteURL: "http://300daysofrun.com/runners/" +stravaID.String,
 	}
 
 	err = t.Execute(w, data)
@@ -1390,10 +1435,33 @@ func authErrHandler(w http.ResponseWriter, r *http.Request, msg string) {
 	cookie := http.Cookie{}
 	cookie.Name = AuthCookieName
 	cookie.Value = ""
+	cookie.Domain = ".300daysofrun.com"
 	cookie.MaxAge = -1 // delete now
 	http.SetCookie(w, &cookie)
 
 	w.Header().Set("Location", "/?message="+url.QueryEscape(msg))
+	w.WriteHeader(http.StatusTemporaryRedirect)
+	w.Write([]byte("Redirecting to index..."))
+}
+
+func logOutHandler(w http.ResponseWriter, r *http.Request) {
+	log.Println("Logging out user...")
+
+	cookie := http.Cookie{}
+	cookie.Name = AuthCookieName
+	cookie.Value = ""
+	cookie.Domain = ".300daysofrun.com"
+	cookie.MaxAge = -1 // delete now
+	http.SetCookie(w, &cookie)
+
+	cookie = http.Cookie{}
+	cookie.Name = AuthCookieName
+	cookie.Value = ""
+	cookie.Domain = "300daysofrun.com"
+	cookie.MaxAge = -1 // delete now
+	http.SetCookie(w, &cookie)
+
+	w.Header().Set("Location", "/")
 	w.WriteHeader(http.StatusTemporaryRedirect)
 	w.Write([]byte("Redirecting to index..."))
 }

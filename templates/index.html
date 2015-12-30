@@ -44,6 +44,12 @@ Variables:
           But how many of them ran 300+ days during the year?<br />
           You can be part of an elite group and accomplish what FEW runners have ever achieved!
         </p>
+        <p><strong>
+          All you need to do is run a minimum of 1 mile a day for 300+ days!
+        </p></strong>
+        <p><strong>
+          We’ll also be adding some fun challenges and prizes throughout the year...
+        </p></strong>
       </div>
     </div>
     <div class="row text-center">
@@ -112,7 +118,7 @@ Variables:
 <div id="leaderboard-section" class="pad-section">
   <div class="container">
     <div class="row">
-      <div class="col-sm-8 col-sm-offset-2">
+      <div class="col-xs-12 col-sm-8 col-sm-offset-2">
         <table id="leaderboard" style="width:100%">
           <thead>
             <th>Runner Name</th>
@@ -142,7 +148,15 @@ Variables:
   </div>
 </div>
 <!-- /fifth section -->
-
+<div id="contact" class="pad-section">
+  <div class="container">
+    <div class="row">
+      <div class="col-xs-12 text-center larger-text">
+        Questions about 300 Days of Run? Email <a href="mailto:info@300daysofrun.com">info@300daysofrun.com</a> for more information.
+      </div>
+    </div>
+  </div>
+</div>
 <!-- footer -->
 <footer>
 
@@ -152,6 +166,7 @@ Variables:
 $(document).ready(function(){
     $('#leaderboard').DataTable({
       data: {{.LeaderboardData}},
+      responsive: true,
       columns: [
         { data: 'athleteurl' },
         { data: 'daysrun' },

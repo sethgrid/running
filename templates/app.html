@@ -9,11 +9,27 @@ Variables:
  - {{.FirstName}}
  - {{.PublicURL}}
  - {{.PrivateURL}}
+ - {{.AthleteURL}}
 -->
 {{ define "content" }}
 <div class="container-fluid">
 	<div class="row">
-		<div class="col-sm-6 col-sm-offset-3">
+		<div class="col-sm-4 col-lg-2 col-lg-offset-1 visible-sm visible-md visible-lg">
+			<h3>Tools and Resources</h3>
+			<a href="{{.AthleteURL}}" class="btn btn-full btn-default">Your Public Profile Page</a>
+			<a href="#" class="btn btn-full btn-default" onClick="FB.ui({  method: 'share',  href: '{{.AthleteURL}}',}, function(response){}); return false;">Share Profile on <i class="fa fa-facebook-square fa-lg"> </i></a>
+			<a href="/#leaderboard-section" class="btn btn-full btn-default">The Leaderboard</a>
+			<h3>Custom Link Generator</h3>
+			Type a message to your supporters in the box below and click the button to generate a custom link. Everyone who visits your profile using this link will be shown your custom message.
+			<textarea class="form-control" rows="3" id="custom-message" placeholder="Type your custom message..."></textarea>
+			<a href="#" class="btn btn-full btn-primary" onClick="generateURL(); return false;">Generate Custom Link</a>
+			<div id="custom-message-container">
+				<div class="well" id="custom-message-result">
+				</div>
+				<small>Click the link to test it, then send it to your friends.</small>
+			</div>
+		</div>
+		<div class="col-sm-8 col-lg-6">
 			<h1>Your 300 Days of Run Summary Page</h1>
 			<p class="larger-text">
 				Hi there, {{.FirstName}}! You're all set up with 300 Days of Run. 
@@ -26,13 +42,13 @@ Variables:
 				Next, it is time to start fundraising! Here is the link to your personal CrowdRise fundraising page:
 			</p>
 			<div class="well">
-				{{.PublicURL}}
+				<a href="{{.PublicURL}}" target="_blank">{{.PublicURL}}</a>
 			</div>
 			<p class="larger-text">
 				Use the link to send to your friends by email and social media so they can donate to your charity. When you log into CrowdRise they also offer several integrated fundraising widgets and social links to use. 
 			</p>
 			<p class="larger-text">
-				We're keep track of your fundraising and your running on our <a href="/#leaderboard-section" target="_blank">leaderboard</a>, so be sure to check on your progress as the year goes on.
+				We're keeping track of your fundraising and your running on our <a href="/#leaderboard-section" target="_blank">leaderboard</a>, so be sure to check on your progress as the year goes on.
 			</p>
 			<p class="larger-text">
 				Happy Running and best wishes on your 300+ Days of Run in 2016!
@@ -40,4 +56,14 @@ Variables:
 		</div>
 	</div>
 </div>
+
+<script>
+	function generateURL(){
+		var url = "{{.AthleteURL}}?message=" + encodeURIComponent($("#custom-message").val())
+		var link = '<a href="' + url + '" target="_blank">' + url + '</a>';
+		$("#custom-message-result").empty().append(link);
+		$("#custom-message-container").show();
+	}
+</script>
+
 {{ end }}

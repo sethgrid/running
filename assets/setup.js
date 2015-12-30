@@ -60,6 +60,9 @@ function crowdriseSearchResult(data){
 	    $("#pagination").append('<li' + pageClass + '><a href="#" onClick="searchCrowdriseCharity(&apos;' + $('#charityname').val() + '&apos;, ' + (i+1).toString() + ')">' + (i+1).toString() + '</a></li>');
 	}
 	$("#search-pagination").append("</nav></ul>");
+    if (results["result"][0].totalResults == 0) {
+        $("#charity-search-results").empty().append("Sorry, your search returned 0 results. Please try again.");
+    }
 }
 
 function createCrowdriseTeam(ein){
@@ -85,7 +88,7 @@ function CrowdRiseTeamResult(data){
     if (results["result"][0].team_created){
     	window.location.href = "http://300daysofrun.com/app?new_user=true";
     } else {
-    	$("#charity-search-results").empty().append("Sorry, something went wrong when trying to set up your Crowdrise Fundraiser. Please contact help@300daysofrun.com and we'll get it sorted out.");
+    	$("#charity-search-results").empty().append("Sorry, something went wrong when trying to set up your Crowdrise Fundraiser. Crowdrise reported that '" + results["result"][0].error + "'. Please contact <a href='mailto:info@300daysofrun.com'>info@300daysofrun.com</a> and we'll get it sorted out.");
 		$("#search-pagination").empty();
     }
 

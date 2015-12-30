@@ -11,6 +11,7 @@ Variables:
 - {{.DaysRun}}
 - {{.MilesRun}}
 - {{.FeetGained}}
+- {{.CustomMessage}}
 -->
 {{ define "content" }}
 <div class="container-fluid">
@@ -19,6 +20,15 @@ Variables:
 			<span>{{.FirstName}} {{.LastName}}</span>
 		</div>
 	</div>
+	{{ if .CustomMessage }}
+	<div class="row">
+		<div class="col-xs-12 col-sm-6 col-sm-offset-3">
+			<div class="alert alert-success" role="alert">
+			   {{ .CustomMessage }}
+			</div>
+		</div>
+	</div>
+	{{ end }}
 	<div class="row">
 		<div class="col-xs-12">
 		  <div class="container">
