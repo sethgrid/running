@@ -10,9 +10,11 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"html"
 	"html/template"
 	"io/ioutil"
 	"log"
+	"math"
 	"math/rand"
 	"net/http"
 	"net/http/httputil"
@@ -20,12 +22,11 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"math"
-	"html"
 
 	"github.com/facebookgo/flagenv"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/gorilla/mux"
+	"github.com/sendgrid/sendgrid-go"
 	"github.com/sethgrid/gencurl"
 )
 
@@ -49,6 +50,9 @@ var STRAVA_BASE_URL string
 var CROWDRISE_API_KEY string
 var CROWDRISE_API_SECRET string
 var CROWDRISE_BASE_URL string
+
+var SENDGRID_APIKEY string
+var SENDGRID_TEMPLATE_ID string
 
 var COOKIE_EXPIRY time.Duration // how long the cookie will be valid
 var EARLIEST_POLL_UNIX int64    // the earliest unix timestamp for which we will try to get running info
@@ -112,7 +116,7 @@ type Activity struct {
 	TotalElevationGain float32 `json:"total_elevation_gain"`
 	Type               string  `json:"type"`
 	StartDateLocal     string  `json:"start_date_local"` // 2013-08-24T00:04:12Z
-	StartDate 		   string  `json:"start_date"`
+	StartDate          string  `json:"start_date"`
 }
 
 func main() {
@@ -133,6 +137,8 @@ func main() {
 	flag.StringVar(&CROWDRISE_API_KEY, "crowdrise-api-key", "", "crowdrise provided api key")
 	flag.StringVar(&CROWDRISE_API_SECRET, "crowdrise-api-secret", "", "crowdrise provided api secret")
 	flag.StringVar(&CROWDRISE_BASE_URL, "crowdrise-base-url", "https://www.crowdrise.com", "crowdrise scheme and domain")
+	flag.StringVar(&SENDGRID_APIKEY, "sendgrid-api-key", "", "SendGrid API key for sendging welcome email")
+	flag.StringVar(&SENDGRID_TEMPLATE_ID, "sendgrid-template-id", "", "SendGrid Tempalte ID for the welcome email")
 	flag.StringVar(&HMAC_KEY, "hmac-key", "abc123", "random string used for hmac sum")
 	flag.DurationVar(&POLL_INTERVAL, "poll-interval", time.Hour*12, "set how often we should query Strava to update the runs for each user")
 	flag.Int64Var(&EARLIEST_POLL_UNIX, "earliest-poll-unix", 1420070400, "prevent server from querying data older than this unix timestamp. Default 2015-01-01.")
@@ -140,6 +146,14 @@ func main() {
 
 	flagenv.Parse()
 	warningMissingConfigs()
+
+	// uncomment to test the sending of the welcome email.
+	// TODO: delete this
+	// if err := SendWelcomeEmail(); err != nil {
+	// 	log.Fatalf("unable to send sendgrid email = %q", err.Error())
+	// } else {
+	// 	log.Fatal("mail sent successfully")
+	// }
 
 	// ********************
 	// set up db connection
@@ -275,66 +289,66 @@ func eventTotalsUpdator() {
 	cli := &http.Client{}
 
 	type CrowdriseTeamData []struct {
-		TeamID string `json:"team_id"`
-		TeamName string `json:"team_name"`
-		TeamUsername string `json:"team_username"`
-		DonationAmountOnline string `json:"total_donations_online_amount"`
-		DonationAmountOffline string `json:"total_donations_offline_amount"`
-		DonationCountOnline string `json:"total_donations_online_count"`
-		DonationCountOffline string `json:"total_donations_offline_count"`
-		CharityEIN string `json:"charity_ein"`
-		TeamURL string `json:"team_url"`
-		OfficialTeam bool `json:"official_team"`
-		HiddenFromEvent bool `json:"hidden_from_event"`
-		CharityName string `json:"charity_name"`
-		CharityURL string `json:"charity_url"`
+		TeamID                 string `json:"team_id"`
+		TeamName               string `json:"team_name"`
+		TeamUsername           string `json:"team_username"`
+		DonationAmountOnline   string `json:"total_donations_online_amount"`
+		DonationAmountOffline  string `json:"total_donations_offline_amount"`
+		DonationCountOnline    string `json:"total_donations_online_count"`
+		DonationCountOffline   string `json:"total_donations_offline_count"`
+		CharityEIN             string `json:"charity_ein"`
+		TeamURL                string `json:"team_url"`
+		OfficialTeam           bool   `json:"official_team"`
+		HiddenFromEvent        bool   `json:"hidden_from_event"`
+		CharityName            string `json:"charity_name"`
+		CharityURL             string `json:"charity_url"`
 		TeamOrganizerFirstName string `json:"team_organizer_first_name"`
-		TeamOrganizerLastName string `json:"team_organizer_last_name"`
-		TeamOrganizerEmail string `json:"team_organizer_email"`
-		TeamOrganizerOrg string `json:"team_organizer_organization"`
-		TeamOrganizerID string `json:"team_organizer_id"`
-		FundraisingCommitment string `json:"fundraising_commitment"`
-		Goal string `json:"goal"`
+		TeamOrganizerLastName  string `json:"team_organizer_last_name"`
+		TeamOrganizerEmail     string `json:"team_organizer_email"`
+		TeamOrganizerOrg       string `json:"team_organizer_organization"`
+		TeamOrganizerID        string `json:"team_organizer_id"`
+		FundraisingCommitment  string `json:"fundraising_commitment"`
+		Goal                   string `json:"goal"`
 	}
 
 	type CrowdriseTeamResponse struct {
-		Status string `json:"status"`
+		Status string              `json:"status"`
 		Result []CrowdriseTeamData `json:"result"`
 	}
 	requestQuery := fmt.Sprintf("api_key=%s&api_token=%s", CROWDRISE_API_KEY, CROWDRISE_API_SECRET)
 	totals := func() CrowdriseTeamResponse {
-			var totals CrowdriseTeamResponse
-			req, err := http.NewRequest("GET", "https://www.crowdrise.com/api/get_event_teams/300DaysOfRun/?"+requestQuery, strings.NewReader(""))
-			if err != nil {
-				log.Printf("error setting up new request to crowdrise event totals - %v", err)
-				return totals
-			}
-			defer req.Body.Close()
-
-			resp, err := cli.Do(req)
-			if err != nil {
-				log.Printf("error getting response for crowdrise event totals - %v", err)
-				return totals
-			}
-			defer resp.Body.Close()
-			body, err := ioutil.ReadAll(resp.Body)
-			if err != nil {
-				log.Printf("error reading response body for crowdrise event totals - %v", err)
-				return totals
-			}
-			if resp.StatusCode > 300 {
-				log.Printf("unexected response getting crowdrise event totals - %s %s", gencurl.FromRequest(req), string(body))
-				return totals
-			}
-
-			err = json.Unmarshal(body, &totals)
-			if err != nil {
-				log.Printf("error marshalling crowdrise event totals  %s - %v", string(body), err)
-				return totals
-			}
-
+		var totals CrowdriseTeamResponse
+		req, err := http.NewRequest("GET", "https://www.crowdrise.com/api/get_event_teams/300DaysOfRun/?"+requestQuery, strings.NewReader(""))
+		if err != nil {
+			log.Printf("error setting up new request to crowdrise event totals - %v", err)
 			return totals
-		}()
+		}
+		defer req.Body.Close()
+
+		resp, err := cli.Do(req)
+		if err != nil {
+			log.Printf("error getting response for crowdrise event totals - %v", err)
+			return totals
+		}
+		defer resp.Body.Close()
+		body, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			log.Printf("error reading response body for crowdrise event totals - %v", err)
+			return totals
+		}
+		if resp.StatusCode > 300 {
+			log.Printf("unexected response getting crowdrise event totals - %s %s", gencurl.FromRequest(req), string(body))
+			return totals
+		}
+
+		err = json.Unmarshal(body, &totals)
+		if err != nil {
+			log.Printf("error marshalling crowdrise event totals  %s - %v", string(body), err)
+			return totals
+		}
+
+		return totals
+	}()
 	for _, total := range totals.Result[0] {
 		_, err := DB.Exec(`insert into teams (team_id, total_donations_online_amount, total_donations_offline_amount, total_donations_online_count, total_donations_offline_count, charity_ein, charity_name) values (?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE total_donations_online_amount=?, total_donations_offline_amount=?, total_donations_online_count=?, total_donations_offline_count=?, charity_ein=?, charity_name=?`, total.TeamID, total.DonationAmountOnline, total.DonationAmountOffline, total.DonationCountOnline, total.DonationCountOffline, total.CharityEIN, total.CharityName, total.DonationAmountOnline, total.DonationAmountOffline, total.DonationCountOnline, total.DonationCountOffline, total.CharityEIN, total.CharityName)
 		if err != nil {
@@ -431,6 +445,7 @@ func checkAndSetUser(stravaID int, email string, firstname string, lastname stri
 			log.Printf("error getting inserted id - %v")
 			return
 		}
+
 	} else if email != previousEmail || oAuthToken != previousOAuthToken {
 		_, err := DB.Exec(`update user set email=?, oauth_token=?, updated_at=? where strava_id=? limit 1`, email, oAuthToken, now)
 		if err != nil {
@@ -585,7 +600,7 @@ type EventTotal struct {
 	Participants       int    `json:"participants"`
 	MilesRun           string `json:"milesrun"`
 	ThousandFeetGained string `json:"thousandfeetgained"`
-	MoneyRaised 	   string `json:"moneyraised"`
+	MoneyRaised        string `json:"moneyraised"`
 }
 
 // getEventTotal returns running totals since a given start date for the entire event
@@ -603,19 +618,19 @@ func getEventTotal(start time.Time) (EventTotal, error) {
 	eventTotal.Participants = participants
 	eventTotal.MilesRun = Comma(int64(metersrun / 1609.34))
 	eventTotal.ThousandFeetGained = Comma(int64(metersgained * 3.28084 / 1000))
-	eventTotal.MoneyRaised = "$" + Comma(int64(math.Floor(moneyraised + .5)))
+	eventTotal.MoneyRaised = "$" + Comma(int64(math.Floor(moneyraised+.5)))
 
 	return eventTotal, nil
 }
 
 // LeaderboardEntry provides a total of meters gained, miles run, and days run by user
 type LeaderboardEntry struct {
-	FullName   string `json:"fullname"`
-	StravaId   int    `json:"strava_id"`
-	MilesRun   string `json:"milesrun"`
-	FeetGained string `json:"feetgained"`
-	DaysRun    int    `json:"daysrun"`
-	AthleteURL string `json:"athleteurl"`
+	FullName    string `json:"fullname"`
+	StravaId    int    `json:"strava_id"`
+	MilesRun    string `json:"milesrun"`
+	FeetGained  string `json:"feetgained"`
+	DaysRun     int    `json:"daysrun"`
+	AthleteURL  string `json:"athleteurl"`
 	MoneyRaised string `json:"moneyraised"`
 }
 
@@ -644,7 +659,7 @@ func getLeaderboardData(start time.Time) ([]LeaderboardEntry, error) {
 		e.DaysRun = daysrun
 		e.FullName = firstname + " " + lastname
 		e.AthleteURL = "<a href='http://300daysofrun.com/runners/" + strconv.Itoa(strava_id) + "' target='_blank'>" + firstname + " " + lastname + "</a>"
-		e.MoneyRaised = "$" + Comma(int64(math.Floor(moneyraised + .5)))
+		e.MoneyRaised = "$" + Comma(int64(math.Floor(moneyraised+.5)))
 		leaderboardData = append(leaderboardData, e)
 	}
 	return leaderboardData, nil
@@ -676,7 +691,7 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
 		MilesRun:           totals.MilesRun,
 		ThousandFeetGained: totals.ThousandFeetGained,
 		LeaderboardData:    leaderboardData,
-		MoneyRaised: 		totals.MoneyRaised,
+		MoneyRaised:        totals.MoneyRaised,
 	}
 
 	err = t.Execute(w, data)
@@ -936,7 +951,7 @@ func crowdRiseSignupHandler(w http.ResponseWriter, r *http.Request, email string
 		Result []struct {
 			UserCreated       bool   `json:"user_created"`
 			Username          string `json:"username"`
-			UserID            int `json:"user_id"`
+			UserID            int    `json:"user_id"`
 			CompleteSignupURL string `json:"complete_signup_url"`
 			ErrorID           string `json:"error_id"`
 			Error             string `json:"error"`
@@ -1063,21 +1078,21 @@ func crowdRiseNewEventTeamHandler(w http.ResponseWriter, r *http.Request, firstn
 	var createTeamResponse struct {
 		Status string `json:"status"`
 		Result []struct {
-			TeamCreated       bool   `json:"team_created"`
+			TeamCreated  bool   `json:"team_created"`
 			URL          string `json:"url"`
-			PrivateURL            string `json:"private_url"`
+			PrivateURL   string `json:"private_url"`
 			TeamUsername string `json:"team_username"`
-			TeamID			int `json:"team_id"`
-			ErrorID           int `json:"error_id"`
-			Error             string `json:"error"`
+			TeamID       int    `json:"team_id"`
+			ErrorID      int    `json:"error_id"`
+			Error        string `json:"error"`
 		} `json:"result"`
 	}
 	var createTeamErrorResponse struct {
 		Status string `json:"status"`
 		Result []struct {
-			TeamCreated       bool   `json:"team_created"`
-			ErrorID           string `json:"error_id"`
-			Error             string `json:"error"`
+			TeamCreated bool   `json:"team_created"`
+			ErrorID     string `json:"error_id"`
+			Error       string `json:"error"`
 		} `json:"result"`
 	}
 	err = json.Unmarshal(data, &createTeamResponse)
@@ -1294,25 +1309,25 @@ func runnerProfileHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := struct {
-		FirstName string
-		LastName string
-		PublicURL string
+		FirstName       string
+		LastName        string
+		PublicURL       string
 		CrowdriseTeamID string
-		StravaID string
-		DaysRun string
-		MilesRun string
-		FeetGained string
-		CustomMessage string
+		StravaID        string
+		DaysRun         string
+		MilesRun        string
+		FeetGained      string
+		CustomMessage   string
 	}{
-		FirstName: firstname.String,
-		LastName: lastname.String,
-		PublicURL: crowdRisePublicURL.String,
+		FirstName:       firstname.String,
+		LastName:        lastname.String,
+		PublicURL:       crowdRisePublicURL.String,
 		CrowdriseTeamID: crowdriseTeamID.String,
-		StravaID: stravaID.String,
-		DaysRun: daysrun.String,
-		MilesRun: Comma(int64(float64(metersrun.Float64) / 1609.34)),
-		FeetGained: Comma(int64(float64(metersgained.Float64) * 3.28084)),
-		CustomMessage: customMessage,
+		StravaID:        stravaID.String,
+		DaysRun:         daysrun.String,
+		MilesRun:        Comma(int64(float64(metersrun.Float64) / 1609.34)),
+		FeetGained:      Comma(int64(float64(metersgained.Float64) * 3.28084)),
+		CustomMessage:   customMessage,
 	}
 
 	err = t.Execute(w, data)
@@ -1366,23 +1381,23 @@ func appHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := struct {
-		Email string
-		NewUser string
-		FirstName string
-		PublicURL string
-		PrivateURL string
+		Email           string
+		NewUser         string
+		FirstName       string
+		PublicURL       string
+		PrivateURL      string
 		CrowdriseTeamID string
-		AthleteURL string
-		CustomMessage string
+		AthleteURL      string
+		CustomMessage   string
 	}{
-		Email: cookieData.StravaAthlete.Email,
-		NewUser: newUserFlag,
-		FirstName: firstname.String,
-		PublicURL: crowdRisePublicURL.String,
-		PrivateURL: crowdRisePrivateURL.String,
+		Email:           cookieData.StravaAthlete.Email,
+		NewUser:         newUserFlag,
+		FirstName:       firstname.String,
+		PublicURL:       crowdRisePublicURL.String,
+		PrivateURL:      crowdRisePrivateURL.String,
 		CrowdriseTeamID: crowdriseTeamID.String,
-		AthleteURL: "http://300daysofrun.com/runners/" +stravaID.String,
-		CustomMessage: CustomMessage,
+		AthleteURL:      "http://300daysofrun.com/runners/" + stravaID.String,
+		CustomMessage:   CustomMessage,
 	}
 
 	err = t.Execute(w, data)
@@ -1583,6 +1598,34 @@ func mwLogRequest(next http.Handler) http.Handler {
 	})
 }
 
+// SendWelcomeEmail sends an email through the SendGrid service
+// TODO: fill this out
+func SendWelcomeEmail() error {
+	sg := sendgrid.NewSendGridClientWithApiKey(SENDGRID_APIKEY)
+
+	message := sendgrid.NewMail()
+	message.AddTo("seth.ammons@gmail.com")
+	message.AddToName("Seth Ammons")
+	message.SetFrom("noreply@300daysofrun.com")
+	message.SetFromName("300 Days of Run")
+	message.SetHTML("<html><p>This is a mail message</p></html>") // set to "" after we go to templates.
+	message.SetSubject("Welcome Seth! 300 Days of Run has begun") // set to "" after we go to templates.
+
+	// There appears to be an issue with SendGrid Templates and substitutions currently.
+	// message.AddFilter("templates", "enable", "1")
+	// message.AddFilter("templates", "template_id", SENDGRID_TEMPLATE_ID)
+	// message.AddSubstitution("subject", "Seth, welcome to 300 Days of Run")
+	// message.AddSubstitution("name", "Seth")
+	// message.AddSubstitution("link", "http://www.crowdrise.com/")
+	// message.AddSubstitution("body", "I can insert a body!")
+
+	if err := sg.Send(message); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // warningMissingConfigs provides start up errors for inappropriate config values
 func warningMissingConfigs() {
 	if STRAVA_ACCESS_TOKEN == "" {
@@ -1593,6 +1636,18 @@ func warningMissingConfigs() {
 	}
 	if STRAVA_CLIENT_SECRET == "" {
 		log.Println("Warning: strava-client-secret empty. See -h.")
+	}
+	if CROWDRISE_API_KEY == "" {
+		log.Println("Warning: crowdrise-api-key empty. See -h.")
+	}
+	if CROWDRISE_API_SECRET == "" {
+		log.Println("Warning: crowdrise-api-secret empty. See -h.")
+	}
+	if SENDGRID_APIKEY == "" {
+		log.Println("Warning: sendgrid-api-key empty. See -h.")
+	}
+	if SENDGRID_TEMPLATE_ID == "" {
+		log.Println("Warning: sendgrid-template-id empty. See -h.")
 	}
 	if MYSQL_DB == "" {
 		log.Println("Warning: mysql-db empty. See -h.")
