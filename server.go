@@ -591,7 +591,7 @@ type EventTotal struct {
 // getEventTotal returns running totals since a given start date for the entire event
 func getEventTotal(start time.Time) (EventTotal, error) {
 	var eventTotal EventTotal
-	activitiesQuery := "select count(distinct users.ID) as participants, sum(ifnull(Distance,0.0)) as metersrun, sum(ifnull(Elevation,0.0)) as metersgained, (sum(ifnull(total_donations_online_amount,0)) + sum(ifnull(total_donations_offline_amount,0))) as moneyraised from users left join activities on users.id = activities.user_id and start_date > ? left join teams on teams.team_id = users.crowdrise_team_id"
+	activitiesQuery := "select act.participants	,act.metersrun ,act.metersgained ,t.moneyraised from (select count(distinct users.ID) as participants ,sum(ifnull(Distance,0.0)) as metersrun ,sum(ifnull(Elevation,0.0)) as metersgained from users left join activities on users.id = activities.user_id and start_date > ?) act cross join (select (sum(ifnull(total_donations_online_amount,0)) + sum(ifnull(total_donations_offline_amount,0))) as moneyraised from teams) t"
 	var participants int
 	var metersrun, metersgained, moneyraised float64
 	err := DB.QueryRow(activitiesQuery, start.Format(MysqlDateFormat)).Scan(&participants, &metersrun, &metersgained, &moneyraised)
