@@ -21,6 +21,7 @@ import (
 	"strings"
 	"time"
 	"math"
+	"html"
 
 	"github.com/facebookgo/flagenv"
 	_ "github.com/go-sql-driver/mysql"
@@ -249,9 +250,6 @@ func activityUpdator(limitToUserID int) {
 			}
 			startDate := startTime.Format(MysqlDateFormat)
 			now := time.Now().Format(MysqlDateFormat)
-			if activity.ID == 460989615 {
-				log.Printf("Start date for adam's activity: %v", startDate)
-			}
 			_, err = DB.Exec(`insert into activities (user_id, strava_id, distance, elevation, start_date, created_at) values (?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE distance=?, elevation=?, start_date=?`, userID, activity.ID, activity.Distance, activity.TotalElevationGain, startDate, now, activity.Distance, activity.TotalElevationGain, startDate)
 			if err != nil {
 				log.Printf("error inserting into activities - %v", err)
@@ -623,7 +621,7 @@ type LeaderboardEntry struct {
 
 func getLeaderboardData(start time.Time) ([]LeaderboardEntry, error) {
 	var leaderboardData []LeaderboardEntry
-	leaderboardQuery := "select users.strava_id, users.firstname, users.lastname, count(distinct date(activities.start_date)) as daysrun, sum(ifnull(Distance,0.0)) as metersrun, sum(ifnull(Elevation,0.0)) as metersgained, (sum(ifnull(total_donations_online_amount,0)) + sum(ifnull(total_donations_offline_amount,0))) as moneyraised FROM users left join activities on users.id = activities.user_id and start_date > ? left join teams on teams.team_id = users.crowdrise_team_id group by users.strava_id"
+	leaderboardQuery := "select users.strava_id, users.firstname, users.lastname, count(distinct date(activities.start_date)) as daysrun, sum(ifnull(Distance,0.0)) as metersrun, sum(ifnull(Elevation,0.0)) as metersgained, (max(ifnull(total_donations_online_amount,0)) + max(ifnull(total_donations_offline_amount,0))) as moneyraised FROM users left join activities on users.id = activities.user_id and start_date > ? left join teams on teams.team_id = users.crowdrise_team_id group by users.strava_id"
 	var firstname, lastname string
 	var metersrun, metersgained, moneyraised float64
 	var daysrun, strava_id int
@@ -1269,7 +1267,7 @@ func StravaOAuthTokenEndpoint(code string) (StravaOAuthTokenResponse, []byte, er
 func runnerProfileHandler(w http.ResponseWriter, r *http.Request) {
 	templates := []string{"templates/base.html", "templates/profile.html"}
 	userID, ok := mux.Vars(r)["rest"]
-	customMessage := strings.TrimSpace(r.URL.Query().Get("message"))
+	customMessage := html.EscapeString(strings.TrimSpace(r.URL.Query().Get("message")))
 	if !ok {
 		errJSONHandler(w, r, http.StatusBadRequest, "missing user ID")
 		return
