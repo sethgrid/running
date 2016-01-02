@@ -110,7 +110,8 @@ type Activity struct {
 	Distance           float32 `json:"distance"`
 	TotalElevationGain float32 `json:"total_elevation_gain"`
 	Type               string  `json:"type"`
-	StartDate          string  `json:"start_date"` // 2013-08-24T00:04:12Z
+	StartDateLocal     string  `json:"start_date_local"` // 2013-08-24T00:04:12Z
+	StartDate 		   string  `json:"start_date"`
 }
 
 func main() {
@@ -241,14 +242,17 @@ func activityUpdator(limitToUserID int) {
 			if activity.Type != "Run" {
 				continue
 			}
-			startTime, err := time.Parse("2006-01-02T15:04:05Z", activity.StartDate)
+			startTime, err := time.Parse("2006-01-02T15:04:05Z", activity.StartDateLocal)
 			if err != nil {
 				log.Printf("error parsing time from activities - %v", err)
 				continue
 			}
 			startDate := startTime.Format(MysqlDateFormat)
 			now := time.Now().Format(MysqlDateFormat)
-			_, err = DB.Exec(`insert into activities (user_id, strava_id, distance, elevation, start_date, created_at) values (?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE user_id = user_id, strava_id=strava_id, distance=distance, elevation=elevation, start_date=start_date`, userID, activity.ID, activity.Distance, activity.TotalElevationGain, startDate, now)
+			if activity.ID == 460989615 {
+				log.Printf("Start date for adam's activity: %v", startDate)
+			}
+			_, err = DB.Exec(`insert into activities (user_id, strava_id, distance, elevation, start_date, created_at) values (?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE distance=?, elevation=?, start_date=?`, userID, activity.ID, activity.Distance, activity.TotalElevationGain, startDate, now, activity.Distance, activity.TotalElevationGain, startDate)
 			if err != nil {
 				log.Printf("error inserting into activities - %v", err)
 				continue
@@ -381,7 +385,6 @@ func listAthleteActivities(oAuthToken string, startUnix int64) []Activity {
 				log.Printf("unexected response getting activities - %s %s", gencurl.FromRequest(req), string(body))
 				return activities
 			}
-
 			err = json.Unmarshal(body, &activities)
 			if err != nil {
 				log.Printf("error marshalling activities  %s - %v", string(body), err)
@@ -390,7 +393,6 @@ func listAthleteActivities(oAuthToken string, startUnix int64) []Activity {
 
 			return activities
 		}()
-
 		results = len(activities)
 		if results > 0 {
 			allActivities = append(allActivities, activities...)
@@ -1267,7 +1269,7 @@ func StravaOAuthTokenEndpoint(code string) (StravaOAuthTokenResponse, []byte, er
 func runnerProfileHandler(w http.ResponseWriter, r *http.Request) {
 	templates := []string{"templates/base.html", "templates/profile.html"}
 	userID, ok := mux.Vars(r)["rest"]
-	customMessage := r.URL.Query().Get("message")
+	customMessage := strings.TrimSpace(r.URL.Query().Get("message"))
 	if !ok {
 		errJSONHandler(w, r, http.StatusBadRequest, "missing user ID")
 		return
@@ -1360,6 +1362,11 @@ func appHandler(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("Redirecting to register..."))
 	}
 
+	var CustomMessage string
+	if newUserFlag == "true" {
+		CustomMessage = crowdRisePrivateURL.String
+	}
+
 	data := struct {
 		Email string
 		NewUser string
@@ -1368,6 +1375,7 @@ func appHandler(w http.ResponseWriter, r *http.Request) {
 		PrivateURL string
 		CrowdriseTeamID string
 		AthleteURL string
+		CustomMessage string
 	}{
 		Email: cookieData.StravaAthlete.Email,
 		NewUser: newUserFlag,
@@ -1376,6 +1384,7 @@ func appHandler(w http.ResponseWriter, r *http.Request) {
 		PrivateURL: crowdRisePrivateURL.String,
 		CrowdriseTeamID: crowdriseTeamID.String,
 		AthleteURL: "http://300daysofrun.com/runners/" +stravaID.String,
+		CustomMessage: CustomMessage,
 	}
 
 	err = t.Execute(w, data)

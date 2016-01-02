@@ -193,3 +193,7 @@ div[id^='crDonateWidget'] {
 #custom-message-result {
   margin-bottom: 3px;
 }
+
+.custom-message {
+    white-space: pre-wrap;
+}
