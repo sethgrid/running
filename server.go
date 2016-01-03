@@ -1608,16 +1608,14 @@ func SendWelcomeEmail() error {
 	message.AddToName("Seth Ammons")
 	message.SetFrom("noreply@300daysofrun.com")
 	message.SetFromName("300 Days of Run")
-	message.SetHTML("<html><p>This is a mail message</p></html>") // set to "" after we go to templates.
-	message.SetSubject("Welcome Seth! 300 Days of Run has begun") // set to "" after we go to templates.
+	message.SetHTML("<p>custom part of html body</p>") // will be inserted into `<%body%>` in the template
+	message.SetSubject("custom part of subject")       // will be inserted into `<%subject%>` in the template
 
 	// There appears to be an issue with SendGrid Templates and substitutions currently.
-	// message.AddFilter("templates", "enable", "1")
-	// message.AddFilter("templates", "template_id", SENDGRID_TEMPLATE_ID)
-	// message.AddSubstitution("subject", "Seth, welcome to 300 Days of Run")
-	// message.AddSubstitution("name", "Seth")
-	// message.AddSubstitution("link", "http://www.crowdrise.com/")
-	// message.AddSubstitution("body", "I can insert a body!")
+	message.AddFilter("templates", "enable", "1")
+	message.AddFilter("templates", "template_id", SENDGRID_TEMPLATE_ID)
+	message.AddSubstitution(`--name--`, "Seth")                      // have `--name--` in the transactional template
+	message.AddSubstitution(`--link--`, "http://www.crowdrise.com/") // have `--link--` in the transactional template
 
 	if err := sg.Send(message); err != nil {
 		return err
