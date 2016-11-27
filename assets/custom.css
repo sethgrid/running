@@ -1,0 +1,203 @@
+/* general styles */
+html, body {
+  height: 100%;
+  width: 100%;
+}
+
+body {
+	padding-top: 50px !important;
+}
+
+/* padded section */
+.pad-section {
+  padding: 50px 0;
+}
+.pad-section img {
+  width: 100%;
+}
+
+/* vertical-centered text */
+.text-vcenter {
+  display: table-cell;
+  text-align: center;
+  vertical-align: middle;
+}
+.text-vcenter h1 {
+  font-size: 4.5em;
+  font-weight: 700;
+  margin: 0;
+  padding: 0;
+}
+
+/* additional sections */
+#home {
+  background: url(http://static1.squarespace.com/static/5636de33e4b0ef5e7b46372a/t/5637ae86e4b03c8b27b6a870/1446489738944/shutterstock_162360923.jpg) no-repeat center center fixed; 
+  display: table;
+  height: 100%;
+  position: relative;
+  width: 100%;
+  -webkit-background-size: cover;
+  -moz-background-size: cover;
+  -o-background-size: cover;
+  background-size: cover;
+}
+
+#stats {
+  background-color: #306d9f;
+  color: #ffffff;
+}
+
+#leaderboard-section {
+  background: url(http://static1.squarespace.com/static/5636de33e4b0ef5e7b46372a/t/5637ae42e4b03c8b27b6a4fd/1446489671400/shutterstock_162360983.jpg) no-repeat center center fixed; 
+  display: table;
+  height: auto;
+  position: relative;
+  width: 100%;
+  -webkit-background-size: cover;
+  -moz-background-size: cover;
+  -o-background-size: cover;
+  background-size: cover;
+}
+
+footer {
+  padding: 20px 0;
+}
+
+/* Button styles */
+
+.btn-home-main {
+	width: 100%;
+	margin-bottom: 8px;
+}
+
+.glyphicon-ok-circle {
+  color: #00cc45;
+}
+
+.header-disabled {
+  color: #b3b3b3;
+}
+
+#leaderboard_wrapper {
+  padding: 8px;
+  background-color: #FFFFFF;
+  border-radius: 3px;
+  width: 100% !important;
+}
+
+.main-text {
+  color: #FFFFFF;
+}
+
+#charity-search-results {
+  margin-top: 15px;
+}
+
+.tagline {
+  margin-bottom: 20px;
+}
+
+.larger-text {
+  font-size: 115%;
+}
+
+.register-button {
+  margin-top: 20px;
+}
+
+.charity-card {
+  border: 1px solid #D3D3D3;
+  border-radius: 3px;
+  padding: 3px;
+}
+
+.smallpad {
+  padding: 5px !important;
+}
+
+.charity-image {
+  min-height: 210px;
+  padding: 0px;
+  margin: 0px;
+}
+
+.btn-full {
+  width: 100%;
+  margin-top: 5px;
+  margin-bottom: 5px;
+}
+
+.well {
+  word-wrap: break-word;
+}
+
+.about-container {
+  border: 1px solid #D3D3D3;
+  border-radius: 3px;
+  padding: 15px;
+  margin-bottom: 5px;
+  margin-top: 5px;
+}
+
+.social {
+  line-height: 10px;
+}
+
+#profile-header {
+  height: 200px;
+  background: url(http://300daysofrun.com/assets/images/profile-header.jpg); 
+  background-size contain;
+  background-position: center;
+  color: #fff;
+  position: relative;
+}
+
+#profile-text {
+  color: #fff;
+  text-rendering: optimizelegibility;
+  text-shadow: 0 0 6px rgba(0,0,0,1);
+  font-size: 3em; 
+  position: absolute;
+  bottom: 0px;
+}
+
+div[id^='crDonateWidget'] {
+  /* Firefox */
+  left: -moz-calc(50% - 150px);
+  /* WebKit */
+  left: -webkit-calc(50% - 150px);
+  /* Opera */
+  left: -o-calc(50% - 150px);
+  /* Standard */
+  left: calc(50% - 150px);
+}
+
+.logo-image {
+  margin-top: -12px;
+  margin-right: 10px;
+}
+
+.alert {
+  margin-top: 15px;
+}
+
+.fa-facebook-square {
+  color: #46629E;
+}
+
+#custom-message-container {
+  display: none;
+  margin-top: 15px;
+}
+
+#custom-message-result {
+  margin-bottom: 3px;
+}
+
+.custom-message {
+    white-space: pre-wrap;
+}
+
+.urgent-text {
+  color: red;
+}

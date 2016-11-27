@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <link rel="apple-touch-icon" sizes="57x57" href="/assets/images/apple-touch-icon-57x57.png">
+    <link rel="apple-touch-icon" sizes="60x60" href="/assets/images/apple-touch-icon-60x60.png">
+    <link rel="apple-touch-icon" sizes="72x72" href="/assets/images/apple-touch-icon-72x72.png">
+    <link rel="apple-touch-icon" sizes="76x76" href="/assets/images/apple-touch-icon-76x76.png">
+    <link rel="apple-touch-icon" sizes="114x114" href="/assets/images/apple-touch-icon-114x114.png">
+    <link rel="apple-touch-icon" sizes="120x120" href="/assets/images/apple-touch-icon-120x120.png">
+    <link rel="apple-touch-icon" sizes="144x144" href="/assets/images/apple-touch-icon-144x144.png">
+    <link rel="apple-touch-icon" sizes="152x152" href="/assets/images/apple-touch-icon-152x152.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="/assets/images/apple-touch-icon-180x180.png">
+    <link rel="icon" type="image/png" href="/assets/images/favicon-32x32.png" sizes="32x32">
+    <link rel="icon" type="image/png" href="/assets/images/favicon-194x194.png" sizes="194x194">
+    <link rel="icon" type="image/png" href="/assets/images/favicon-96x96.png" sizes="96x96">
+    <link rel="icon" type="image/png" href="/assets/images/android-chrome-192x192.png" sizes="192x192">
+    <link rel="icon" type="image/png" href="/assets/images/favicon-16x16.png" sizes="16x16">
+    <link rel="manifest" href="/assets/images/manifest.json">
+    <link rel="mask-icon" href="/assets/images/safari-pinned-tab.svg" color="#5bbad5">
+    <link rel="shortcut icon" href="/assets/images/favicon.ico">
+    <meta name="msapplication-TileColor" content="#da532c">
+    <meta name="msapplication-TileImage" content="/assets/images/mstile-144x144.png">
+    <meta name="msapplication-config" content="/assets/images/browserconfig.xml">
+    <meta name="theme-color" content="#ffffff">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+    <meta property="og:image" content="http://300daysofrun.com/assets/images/300DaysOfRunLogo-Facebook.png"/>
+    <meta property="og:url" content="http://300daysofrun.com"/>
+    <meta property="og:title" content="300 Days of Run"/>
+    <meta property="fb:app_id" content="1540579456257845"/>
+    <meta property="og:description" content="300 Days of Run is an international running event that bridges the worlds of endurance running and philanthropy. It is a free and easy way to challenge yourself towards an AUDACIOUS running goal while raising money for a charity of your choice."/>
+    <title>300 Days of Run</title>
+    <script src="//code.jquery.com/jquery-1.11.3.min.js"></script>
+    <script src="//code.jquery.com/jquery-migrate-1.2.1.min.js"></script>
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/css/bootstrap.min.css" integrity="sha384-1q8mTJOASx8j1Au+a5WDVnPi2lkFfwwEAa8hDDdjZlpLegxhjVME1fgjWPGmkzs7" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/font-awesome/4.5.0/css/font-awesome.min.css">
+    <link rel="stylesheet" href="/assets/custom.css">
+    <link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/s/bs-3.3.5/jqc-1.11.3,dt-1.10.10/datatables.min.css"/>
+    <script type="text/javascript" src="https://cdn.datatables.net/s/bs-3.3.5/jqc-1.11.3,dt-1.10.10/datatables.min.js"></script>
+    <link rel="stylesheet" ref="https://cdn.datatables.net/responsive/2.0.0/css/responsive.dataTables.min.css" />
+    <script type="text/javascript" src="https://cdn.datatables.net/responsive/2.0.0/js/dataTables.responsive.min.js"></script>
+    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/js/bootstrap.min.js" integrity="sha384-0mSbJDEHialfmuBBQP6A4Qrprq5OVfW37PRR3j5ELqxss1yVqOtnepnHVP9aJ7xS" crossorigin="anonymous"></script>
+    <script src="assets/bootstrap_datatables.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery-cookie/1.4.1/jquery.cookie.js"></script>
+    <script type="text/javascript" src="/assets/utility.js"></script>
+  </head>
+  <body>
+    <div id="fb-root"></div>
+    <nav class="navbar navbar-default navbar-fixed-top" role="navigation">
+      <div class="container-fluid">
+        <div class="navbar-header">
+          <a class="navbar-brand" href="/"><img src="/assets/images/300DaysOfRunLogoTrans-small.png" class="pull-left logo-image" /></a>
+        </div>
+        <div class="collapse navbar-collapse">
+          <ul class="nav navbar-nav pull-right" id="nav-links">
+            <li><a href="/#about">About</a></li>
+            <li><a href="/#leaderboard-section">Leaderboard</a></li>
+            <li><a href="/rules">Rules & FAQ</a></li>
+            <li id="register-login"></li>
+          </ul>
+        </div>
+      </div>
+    </nav>
+      {{ template "content" . }}
+    <footer id="footer" class="footer text-center">
+      <a href="/terms">Terms of Service</a> | <a href="/privacy">Privacy Policy</a><br />
+      &copy; 2015, 300 Days, Inc.
+    </footer>
+  </body>
+  <script>
+  var AUTH_COOKIE = "auth_cookie";
+  var USER_EMAIL = "";
+  var CURRENT_PAGE = 1;
+  if (typeof $.cookie(AUTH_COOKIE) === 'undefined'){
+    //No cookie
+    $('#register-login').empty().append('<a href="/register">Register</a>');
+  } else {
+    var tokenData = JSON.parse(atob($.cookie(AUTH_COOKIE)).split("::hmac::")[0]);
+    console.log("tokenData:",tokenData);
+    $('#register-login').empty().append('<a href="/app">My Account</a>');
+    $('#nav-links').append('<li><a href="/logout" onClick="logOut()">Log Out</a>');
+  }
+
+  function logOut() {
+    var cookies = document.cookie.split(";");
+    for(var i=0; i < cookies.length; i++) {
+        var equals = cookies[i].indexOf("=");
+        var name = equals > -1 ? cookies[i].substr(0, equals) : cookies[i];
+        document.cookie = name + "=;expires=Thu, 01 Jan 1970 00:00:00 GMT";
+    }
+  }
+
+  </script>
+</html>

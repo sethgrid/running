@@ -1,0 +1,66 @@
+<!--
+Developer Notes:
+This file is read in as a template and will not work properly until parsed.
+Variables:
+
+- {{.FirstName}}
+- {{.LastName}}
+- {{.PublicURL}}
+- {{.CrowdriseTeamID}}
+- {{.StravaID}}
+- {{.DaysRun}}
+- {{.MilesRun}}
+- {{.FeetGained}}
+- {{.CustomMessage}}
+-->
+{{ define "content" }}
+<div class="container-fluid">
+	<div class="row" id="profile-header">
+		<div class="col-xs-12 col-lg-6 col-lg-offset-3" id="profile-text">
+			<span>{{.FirstName}} {{.LastName}}</span>
+		</div>
+	</div>
+	{{ if .CustomMessage }}
+	<div class="row">
+		<div class="col-xs-12 col-sm-6 col-sm-offset-3">
+			<div class="alert alert-success" role="alert">
+			   <span class="custom-message">{{ .CustomMessage }}</span>
+			</div>
+		</div>
+	</div>
+	{{ end }}
+	<div class="row">
+		<div class="col-xs-12">
+		  <div class="container">
+		    <h2 class="text-center">
+		      Running Totals to Date
+		    </h2>
+		    <h4 class="text-center">
+		      Running totals begin January 1
+		    </h4>
+		    <hr />
+		    <div class="row text-center">
+		      <div class="col-sm-4 col-xs-12">
+		        <h1> {{.DaysRun}}</h1>
+		        <p>Days of Run</p>
+		      </div>
+		      <div class="col-sm-4 col-xs-12">
+		        <h1>{{.MilesRun}}</h1>
+		        <p>Miles Run</p>
+		      </div>
+		      <div class="col-sm-4 col-xs-12">
+		        <h1>{{.FeetGained}}</h1>
+		        <p>Feet Gained</p>
+		      </div>
+		    </div>
+		  </div>
+		</div>
+	</div>
+	<div class="row">
+			<h2 class="text-center">Fundraising Totals</h2>
+			<div class="text-center" id="crowdrise-container">
+				<script type="text/javascript" src="https://www.crowdrise.com/widgets/donate/fundraiser/{{.CrowdriseTeamID}}/"></script>
+			</div>
+	</div>
+</div>
+{{ end }}

@@ -1,0 +1,208 @@
+<!--
+Developer Notes:
+This file is read in as a template and will not work properly until parsed.
+
+Variables:
+ - {{.StravaClientID}}
+ - {{.Participants}}
+ - {{.MetersRun}}
+ - {{.MilesRun}}
+ - {{.MetersGained}}
+ - {{.MoneyRaised}}
+ - {{.LeaderboardData}}
+-->
+{{ define "content" }}
+
+<!-- first section  -->
+<div id="home" class="home">
+  <div class="text-vcenter">
+    <h1 class="main-text">300 Days of Run</h1>
+    <h3 class="main-text tagline">Raising money for charity, one run at a time</h3>
+    <div class="col-sm-4 col-sm-offset-4 col-md-2 col-md-offset-5">
+    	<a href="/register" id="reglink" class="btn btn-default btn-lg btn-home-main">Sign Up</a>
+    	<a href="https://www.strava.com/oauth/authorize?client_id={{.StravaClientID}}&response_type=code&redirect_uri=http://300daysofrun.com/token_exchange&scope=write&state=login" id="loginlink" class="btn btn-default btn-lg btn-home-main">Log In</a>
+    	<a href="#about" class="btn btn-default btn-lg btn-home-main">Learn More</a>
+    </div>
+  </div>
+</div>
+<!-- /first section -->
+
+<!-- second section - About -->
+<div id="about" class="pad-section">
+  <div class="container">
+    <div class="row">
+      <div class="col-xs-12 col-md-8 col-md-offset-2 text-center larger-text">
+        <h2>About 300 Days of Run</h2>
+        <p>
+          300 Days of Run is an international running event that bridges the worlds of endurance running and philanthropy. It is a free and easy way to challenge yourself towards an AUDACIOUS running goal. 
+        </p>
+        <p><strong>
+          Your challenge is to run 300+ days in 2016 and raise money for YOUR favorite charity while doing it. 
+        </p></strong>
+        <p>
+          Over 1,000,000 runners finished a marathon last year.<br />
+          But how many of them ran 300+ days during the year?<br />
+          You can be part of an elite group and accomplish what FEW runners have ever achieved!
+        </p>
+        <p><strong>
+          All you need to do is run a minimum of 1 mile a day for 300+ days!
+        </p></strong>
+        <p><strong>
+          We’ll also be adding some fun challenges and prizes throughout the year...
+        </p></strong>
+        <p><strong>
+          <span class="urgent-text">There is still time to sign-up for the challenge!</span> All of your runs (year-to-date) will be imported from Strava when you register.  If you haven’t yet been using Strava you can also manually add your missing runs. Do you have what it takes to run 300+ days this year and raise money for your favorite charity to prove it?  Welcome to 300 Days of Run! 
+        </p></strong>
+      </div>
+    </div>
+    <div class="row text-center">
+      <h2>How does it work?</h2>
+    </div>
+    <div class="row">
+      <div class="col-xs-12 col-md-4">
+        <div class="about-container text-center larger-text">
+          <img src="/assets/images/strava-logo.png" class="img-responsive" />
+          <a href="/register">Sign up for the challenge</a> using your Strava Account (Don’t have a Strava account? Click to get your FREE account)
+        </div>
+      </div>
+      <div class="col-xs-12 col-md-4">
+        <div class="about-container text-center larger-text">
+          <img src="/assets/images/crowdrise-logo.png" class="img-responsive" />
+          Set up your fundraising account to raise money for YOUR charity including setting your personal target. (Also totally free)
+        </div>
+      </div>
+      <div class="col-xs-12 col-md-4">
+        <div class="about-container text-center larger-text">
+          <img src="/assets/images/run-logo.jpg" class="img-responsive" />
+          Run 300+ Days in 2016!
+        </div>
+      </div>
+    </div>
+    <div class="row text-center">
+      <a href="/register" class="btn btn-primary btn-lg register-button">Sign Up for 300 Days of Run</a>
+    </div>
+  </div>
+</div>
+<!-- /second section -->
+
+<!-- third section - stats -->
+<div id="stats" class="pad-section">
+  <div class="container">
+    <h2 class="text-center">
+      Totals to Date
+    </h2>
+    <h4 class="text-center">
+      Running totals begin January 1
+    </h4>
+    <hr />
+    <div class="row text-center">
+      <div class="col-sm-3 col-xs-6">
+        <h1> {{.Participants}}</h1>
+        <p>Participants</p>
+      </div>
+      <div class="col-sm-3 col-xs-6">
+        <h1>{{.MilesRun}}</h1>
+        <p>Miles Run</p>
+      </div>
+      <div class="col-sm-3 col-xs-6">
+        <h1>{{.ThousandFeetGained}}</h1>
+        <p>Thousand Feet Gained</p>
+      </div>
+      <div class="col-sm-3 col-xs-6">
+        <h1>{{.MoneyRaised}}</h1>
+        <p>Money Raised</p>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- /third section -->
+
+<!-- fourth section - leaderboard -->
+<div id="leaderboard-section" class="pad-section">
+  <div class="container">
+    <div class="row">
+      <div class="col-xs-12 col-sm-8 col-sm-offset-2">
+        <table id="leaderboard" style="width:100%">
+          <thead>
+            <th>Runner Name</th>
+            <th>Days of Run</th>
+            <th>Miles Run</th>
+            <th>Feet Gained</th>
+            <th>Money Raised</th>
+          </thead>
+          <tbody>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- /fourth section -->
+
+<!-- fifth section - social share buttons -->
+<div id="social" class="pad-section">
+  <div class="container">
+    <div class="row">
+      <div class="col-sm-12 text-center social">
+        <div class="fb-share-button" data-href="http://300daysofrun.com" data-layout="button"></div>
+        <a class="twitter-share-button" href="https://twitter.com/intent/tweet?text=Raise%20money%20for%20charity%20with%20the%20ultimate%20year-long%20running%20challenge!" data-url="http://300daysofrun.com" data-hashtags="300daysofrun">Tweet</a>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- /fifth section -->
+<div id="contact" class="pad-section">
+  <div class="container">
+    <div class="row">
+      <div class="col-xs-12 text-center larger-text">
+        Questions about 300 Days of Run? Email <a href="mailto:info@300daysofrun.com">info@300daysofrun.com</a> for more information.
+      </div>
+    </div>
+  </div>
+</div>
+<!-- footer -->
+<footer>
+
+</footer>
+<!-- /footer -->
+<script>
+$(document).ready(function(){
+    $('#leaderboard').DataTable({
+      data: {{.LeaderboardData}},
+      responsive: true,
+      columns: [
+        { data: 'athleteurl' },
+        { data: 'daysrun' },
+        { data: 'milesrun' },
+        { data: 'feetgained' },
+        { data: 'moneyraised' }
+      ],
+      "order": [[ 1, "desc" ]],
+      "language": {
+        "lengthMenu": "Show _MENU_ runners",
+        "infoFiltered": "(filtered from _MAX_ total runners)",
+        "info": "Showing _START_ to _END_ of _TOTAL_ runners"
+      },
+      "columnDefs": [
+        { "orderSequence": [ "asc", "desc" ], "targets": [ 0 ] },
+        { "orderSequence": [ "desc", "asc" ], "targets": [ 1 ] },
+        { "orderSequence": [ "desc", "asc" ], "targets": [ 2 ] },
+        { "orderSequence": [ "desc", "asc" ], "targets": [ 3 ] },
+        { "orderSequence": [ "desc", "asc" ], "targets": [ 4 ] }
+      ]
+    });
+    $('#leaderboard')
+      .removeClass( 'display' )
+      .addClass('table table-striped table-bordered');
+});
+var AUTH_COOKIE = "auth_cookie";
+if (typeof $.cookie(AUTH_COOKIE) === 'undefined'){
+  //No cookie
+} else {
+  var tokenData = JSON.parse(atob($.cookie(AUTH_COOKIE)).split("::hmac::")[0]);
+  console.log("tokenData:",tokenData);
+  $('#reglink').hide();
+  $('#loginlink').hide();
+}
+</script>
+{{ end }}

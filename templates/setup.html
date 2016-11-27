@@ -1,0 +1,103 @@
+<!--
+Developer Notes:
+This file is read in as a template and will not work properly until parsed.
+This page will only display after the user has been authenticated
+
+Variables:
+ - {{.Email}}
+ - {{.FirstName}}
+-->
+{{ define "content" }}
+<div class="container-fluid">
+	<div class="row">
+		<div class="col-md-8 col-md-offset-2">
+			<h1>Welcome to 300 Days of Run, {{.FirstName}}</h1>
+			<p class="larger-text">
+				You’re officially registered, Congratulations!
+			</p>
+			<p class="larger-text">
+				You are now connected with Strava and CrowdRise and just a few more clicks to finish the process for your fundraising.
+			</p>
+			<p class="larger-text">
+				Now, it’s time to select the charity you’ll be raising money for this year. There are over 1.5 million IRS-approved charities to choose from.  (Charities must be listed with guidestar.com to be eligible.  At this time only USA based charities are eligible for donations with Crowdrise and the 300 Days of Run platform)
+			</p>
+			<p class="larger-text">
+				Use the form below to search for YOUR charity to support…
+			</p>
+			<form name="crowdriseCharitySearch" action="" method="get">
+				<div class="input-group">
+					<input type="text" class="form-control" id="charityname" name="charityname" placeholder="Search for a charity...">
+					<span class="input-group-btn"><button name="search" type="button" id="search" class="btn btn-primary">Search</button></span>
+				</div>
+			</form>
+			<div id="charity-search-results">
+				
+			</div>
+			<div id="search-pagination">
+			</div>
+			<div id="suggested-charities">
+				<h3 class="text-center tagline register-button">Not sure which charity to support? Here are a few we recommend:</h3>
+				<div class="row">
+					<div class="col-xs-12 col-sm-4 smallpad">
+						<div class="charity-card">
+							<div class="charity-image">
+								<img src="/assets/images/waterorg-logo.gif" class="img-responsive center-block" />
+								For more than twenty years, Water.org has pioneered safe water and sanitation solutions that give women hope, children health and communities a future.
+								<a href="#" class="btn btn-success btn-full" onClick="createCrowdriseTeam('58-2060131'); return false;">Select Water.org</a>
+							</div>
+						</div>
+					</div>
+					<div class="col-xs-12 col-sm-4 smallpad">
+						<div class="charity-card">
+							<div class="charity-image">
+								<img src="/assets/images/freshair-logo.png" class="img-responsive center-block" />
+								Since 1877, The Fresh Air Fund has provided free summer experiences in the country to more than 1.8 million New York City children from low-income communities.
+								<a href="#" class="btn btn-success btn-full" onClick="createCrowdriseTeam('13-1656653'); return false;">Select Fresh Air Fund</a>
+							</div>
+						</div>
+					</div>
+					<div class="col-xs-12 col-sm-4 smallpad">
+						<div class="charity-card">
+							<div class="charity-image">
+								<img src="/assets/images/one-logo.png" class="img-responsive center-block" />
+								ONE is an international campaigning and advocacy organization of more than 7 million people taking action to end extreme poverty and preventable disease.
+								<a href="#" class="btn btn-success btn-full" onClick="createCrowdriseTeam('01-0593565'); return false;">Select ONE</a>
+							</div>
+						</div>
+					</div>
+				</div>
+				<div class="row">
+					<div class="col-xs-12 col-sm-4 smallpad">
+						<div class="charity-card">
+							<div class="charity-image">
+								<img src="/assets/images/dosomething-logo.png" class="img-responsive center-block" />
+								Do Something is a non-profit organization with the goal of motivating young people to take action around social changes through national campaigns and grants for projects that make an impact.
+								<a href="#" class="btn btn-success btn-full" onClick="createCrowdriseTeam('13-3720473'); return false;">Select Do Something</a>
+							</div>
+						</div>
+					</div>
+					<div class="col-xs-12 col-sm-4 smallpad">
+						<div class="charity-card">
+							<div class="charity-image">
+								<img src="/assets/images/msf-logo.png" class="img-responsive center-block" />
+								Doctors Without Borders helps people worldwide where the need is greatest, delivering emergency medical aid to people affected by conflict, epidemics, disasters, or exclusion from health care.
+								<a href="#" class="btn btn-success btn-full" onClick="createCrowdriseTeam('13-3433452'); return false;">Select DWOB/MSF</a>
+							</div>
+						</div>
+					</div>
+					<div class="col-xs-12 col-sm-4 smallpad">
+						<div class="charity-card">
+							<div class="charity-image">
+								<img src="/assets/images/amnesty-logo.jpg" class="img-responsive center-block" />
+								Amnesty International is a global movement of people fighting injustice and promoting human rights. We work to protect people wherever justice, freedom, truth and dignity are denied. 
+								<a href="#" class="btn btn-success btn-full" onClick="createCrowdriseTeam('52-0851555'); return false;">Select Amnesty International</a>
+							</div>
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
+	</div>
+</div>
+<script src="assets/setup.js"></script>
+{{ end }}
